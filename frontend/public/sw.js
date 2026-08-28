@@ -1,4 +1,4 @@
-/* openGym service worker — runtime caching (works with Vite's hashed asset names).
+/* RutinaIA service worker — runtime caching (works with Vite's hashed asset names).
    Media (img/gif) cache-first; everything else network-first with offline fallback. */
 const CACHE = 'opengym-rt-v1'
 
@@ -10,7 +10,7 @@ self.addEventListener('activate', e => {
 })
 self.addEventListener('push', e => {
   const data = e.data ? e.data.json() : {}
-  e.waitUntil(self.registration.showNotification(data.title || 'openGym', {
+  e.waitUntil(self.registration.showNotification(data.title || 'RutinaIA', {
     body: data.body || '',
     icon: 'icon-512.png',
     badge: 'icon-180.png',
