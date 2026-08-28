@@ -1,4 +1,4 @@
-// Behaviour for the openGym site: the phone menu, the scroll reveals, the demo frame,
+// Behaviour for the RutinaIA site: the phone menu, the scroll reveals, the demo frame,
 // and the two things that come from the GitLab API (repo counts, release timeline).
 // Every one of them fails soft — the page is complete without any of this running.
 
@@ -74,7 +74,7 @@ const GL_PROJECT = 'https://gitlab.com/api/v4/projects/DuarteSantos8%2Fopengym'
     slot.dataset.mounted = '1'
     const f = document.createElement('iframe')
     f.src = slot.dataset.demo
-    f.title = 'openGym live demo'
+    f.title = 'RutinaIA live demo'
     f.loading = 'lazy'
     f.style.cssText = 'width:100%;height:100%;border:0;display:block;border-radius:34px;background:#000'
     slot.appendChild(f)

@@ -97,7 +97,7 @@ export async function writeAutoBackup(state) {
   try {
     const { Filesystem, Directory, Encoding } = await import('@capacitor/filesystem')
     await Filesystem.writeFile({
-      path: `opengym-backup-${todayISO()}.json`,
+      path: `rutinaia-backup-${todayISO()}.json`,
       directory: Directory.Documents,
       data: JSON.stringify(state),
       encoding: Encoding.UTF8,
