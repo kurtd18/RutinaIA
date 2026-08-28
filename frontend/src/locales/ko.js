@@ -482,7 +482,7 @@ export default {
   'Use this weekly schedule': '이 주간 일정 사용',
   'Replaces your current Mon–Sun assignments.': '현재 월–일 배정을 대체합니다.',
   'Added {0} routines to your plan': '계획에 루틴 {0}개를 추가했습니다',
-  'this isn’t an RutinaIA plan file': 'RutinaIA 계획 파일이 아닙니다',
+  'this isn’t a RutinaIA plan file': 'RutinaIA 계획 파일이 아닙니다',
   'Shared routine': '공유된 루틴',
   'Unknown exercise': '알 수 없는 운동',
   'Weekly Training Plan': '주간 트레이닝 계획',

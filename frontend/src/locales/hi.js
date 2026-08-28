@@ -482,7 +482,7 @@ export default {
   'Use this weekly schedule': 'यह साप्ताहिक कार्यक्रम इस्तेमाल करें',
   'Replaces your current Mon–Sun assignments.': 'आपके मौजूदा सोम–रवि निर्धारण को बदल देता है।',
   'Added {0} routines to your plan': 'आपके प्लान में {0} रूटीन जोड़े गए',
-  'this isn’t an RutinaIA plan file': 'यह RutinaIA प्लान फ़ाइल नहीं है',
+  'this isn’t a RutinaIA plan file': 'यह RutinaIA प्लान फ़ाइल नहीं है',
   'Shared routine': 'साझा किया गया रूटीन',
   'Unknown exercise': 'अज्ञात व्यायाम',
   'Weekly Training Plan': 'साप्ताहिक ट्रेनिंग प्लान',

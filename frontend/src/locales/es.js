@@ -482,7 +482,7 @@ export default {
   'Use this weekly schedule': 'Usar este horario semanal',
   'Replaces your current Mon–Sun assignments.': 'Reemplaza tu asignación actual de lun–dom.',
   'Added {0} routines to your plan': 'Se añadieron {0} rutinas a tu plan',
-  'this isn’t an RutinaIA plan file': 'esto no es un archivo de plan de RutinaIA',
+  'this isn’t a RutinaIA plan file': 'esto no es un archivo de plan de RutinaIA',
   'Shared routine': 'Rutina compartida',
   'Unknown exercise': 'Ejercicio desconocido',
   'Weekly Training Plan': 'Plan de entrenamiento semanal',

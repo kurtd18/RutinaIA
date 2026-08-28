@@ -153,7 +153,7 @@ export const PT_BR_OVERRIDES = {
   '{0} exercises in the file aren’t in your library and were left out.': '{0} exercícios do arquivo não estão na sua biblioteca e foram ignorados.',
   'Replaces your current Mon–Sun assignments.': 'Substitui os dias definidos de segunda a domingo.',
   'Added {0} routines to your plan': '{0} rotinas adicionadas ao seu plano',
-  'this isn’t an RutinaIA plan file': 'este não é um arquivo de plano do RutinaIA',
+  'this isn’t a RutinaIA plan file': 'este não é um arquivo de plano do RutinaIA',
   'This screen could not be drawn. Your data is safe on this device.': 'Não foi possível exibir esta tela. Seus dados estão seguros neste dispositivo.',
   'From your log:': 'Do seu registro:',
   'Enter a weight and 1–{0} reps — beyond that an estimate is guesswork.': 'Informe um peso e de 1 a {0} repetições — acima disso, a estimativa é apenas um palpite.',

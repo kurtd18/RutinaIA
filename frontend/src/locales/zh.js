@@ -482,7 +482,7 @@ export default {
   'Use this weekly schedule': '使用此每周日程',
   'Replaces your current Mon–Sun assignments.': '替换你当前的周一至周日安排。',
   'Added {0} routines to your plan': '已向你的计划添加 {0} 个训练日',
-  'this isn’t an RutinaIA plan file': '这不是 RutinaIA 计划文件',
+  'this isn’t a RutinaIA plan file': '这不是 RutinaIA 计划文件',
   'Shared routine': '共享的训练日',
   'Unknown exercise': '未知动作',
   'Weekly Training Plan': '每周训练计划',
