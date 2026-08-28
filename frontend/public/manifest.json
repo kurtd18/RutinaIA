@@ -1,6 +1,6 @@
 {
-  "name": "openGym",
-  "short_name": "openGym",
+  "name": "RutinaIA",
+  "short_name": "RutinaIA",
   "description": "Personal gym & body weight tracker",
   "start_url": "./",
   "scope": "./",
