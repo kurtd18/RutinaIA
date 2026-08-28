@@ -60,7 +60,8 @@ const COLUMNS = [
   ['date', ['date', 'workout date']],
   ['startTime', ['start time', 'start date']],
   ['endTime', ['end time']],
-  ['workoutName', ['workout name', 'title', 'workout']],
+  ['workoutName', ['workout name', 'title', 'workout', 'activity name']],
+  ['activityType', ['activity type', 'type']],
   ['category', ['category', 'body part', 'muscle group']],
   ['weightKg', ['weight kg']],
   ['weightLb', ['weight lbs', 'weight lb']],
@@ -75,7 +76,7 @@ const COLUMNS = [
   ['distance', ['distance']],
   ['distanceUnit', ['distance unit']],
   ['seconds', ['seconds', 'duration seconds', 'set duration sec']],
-  ['time', ['time', 'duration']],
+  ['time', ['time', 'duration', 'elapsed time', 'moving time']],
   ['setType', ['set type']],
   ['note', ['comment', 'comments', 'notes', 'note', 'workout notes']],
 ]
@@ -99,6 +100,7 @@ export function detectSource(header) {
   if (h.includes('exercise') && h.includes('kind')) return 'FitNotes (iOS)'
   if (h.includes('exercise') && h.includes('weight unit')) return 'FitNotes'
   if (h.includes('exercise') && h.includes('category')) return 'FitNotes'
+  if (!h.includes('exercise') && h.includes('date') && (h.includes('title') || h.includes('activity type'))) return 'Garmin'
   return null
 }
 
@@ -480,6 +482,68 @@ export function parseWorkoutCSV(text, { unit = 'kg' } = {}) {
     created: created.size, unmatchedNames: [...unmatched].sort(),
     sets, skipped, warmups, fileUnit, mixedUnits, converted, rpeSets, rirSets,
     from: dates[0] || null, to: dates[dates.length - 1] || null,
+  }
+}
+
+/**
+ * Garmin Connect's own CSV export (Activities list -> Export CSV) is an activity-SUMMARY
+ * export: one row per session with date/type/title/duration, never a per-exercise set log —
+ * per-set weight/reps data isn't available in any structured export Garmin provides. Rather
+ * than pretend to reconstruct sets Garmin doesn't expose, each row becomes an empty workout
+ * placeholder: the training day is recorded, and the user fills in the numbers themselves.
+ *
+ * Unlike every adapter above, this one is NOT verified against a real exported file — Garmin
+ * doesn't document this CSV's columns and they reportedly vary between accounts. The column
+ * names below are corroborated by several independent secondhand reports (Garmin's own
+ * community forums, a data-export writeup) but not by an actual export. See
+ * docs/superpowers/specs/2026-08-28-phase2-garmin-import-design.md for the sourcing. If you
+ * have a real Garmin export, tighten this against it.
+ */
+export function parseGarminCSV(text) {
+  const rows = parseCSV(text)
+  if (rows.length < 2) return { error: 'empty' }
+  const map = mapHeader(rows[0])
+  if (map.exercise !== undefined) return { error: 'unrecognised' }
+  if (map.date === undefined || (map.workoutName === undefined && map.activityType === undefined)) {
+    return { error: 'unrecognised' }
+  }
+
+  const cell = (r, f) => (map[f] === undefined ? '' : String(r[map[f]] ?? '').trim())
+  const byDate = new Map()
+  let skipped = 0
+
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i]
+    const when = parseWhen(cell(r, 'date'))
+    if (!when) { skipped++; continue }
+    const name = cell(r, 'workoutName') || cell(r, 'activityType') || 'Imported'
+    const mins = toMinutes(cell(r, 'time'))
+    const base = new Date(when.d + 'T00:00:00').getTime()
+    const start = base + (when.t ?? 18 * 3600000)
+    const end = mins > 0 ? start + mins * 60000 : start
+
+    const existing = byDate.get(when.d)
+    if (!existing) { byDate.set(when.d, { start, end, name }); continue }
+    existing.start = Math.min(existing.start, start)
+    existing.end = Math.max(existing.end, end)
+    if (name && name !== existing.name) existing.name = existing.name + ' + ' + name
+  }
+  if (!byDate.size) return { error: 'unrecognised' }
+
+  const dates = [...byDate.keys()].sort()
+  const workouts = dates.map(d => {
+    const day = byDate.get(d)
+    return {
+      id: 'iw' + uid(), d, start: day.start, end: day.end,
+      routineId: null, name: day.name, entries: [], prs: [], vol: 0,
+    }
+  })
+
+  return {
+    kind: 'workouts', source: 'Garmin', workouts, customEx: [],
+    matched: 0, matchedSets: 0, created: 0, unmatchedNames: [],
+    sets: 0, skipped, warmups: 0, fileUnit: '', mixedUnits: false, converted: false,
+    rpeSets: 0, rirSets: 0, from: dates[0] || null, to: dates[dates.length - 1] || null,
   }
 }
 

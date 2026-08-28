@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseWorkoutCSV } from './import-csv.js'
+import { parseWorkoutCSV, parseGarminCSV, detectSource } from './import-csv.js'
 
 const CSV = [
   'Date,Exercise,Weight,Reps,Set Type',
@@ -48,5 +48,68 @@ describe('gravl export', () => {
 
     // "Set Duration (sec)" is seconds, not minutes: read as `time` it would land as 22 minutes.
     expect(cardio.entries[0].sets).toEqual([{ min: 0.4, speed: 0, done: true }])
+  })
+})
+
+describe('parseGarminCSV', () => {
+  it('creates empty-entries workouts from a Garmin-shaped activity summary', () => {
+    const csv = 'Date,Activity Type,Title,Time,Calories\n' +
+      '2026-08-10 06:32:00,Strength Training,Morning Lift,00:45:00,320\n' +
+      '2026-08-12 07:00:00,Running,,00:30:00,280\n'
+    const parsed = parseGarminCSV(csv)
+    expect(parsed.error).toBeUndefined()
+    expect(parsed.kind).toBe('workouts')
+    expect(parsed.source).toBe('Garmin')
+    expect(parsed.workouts).toHaveLength(2)
+    expect(parsed.workouts[0].d).toBe('2026-08-10')
+    expect(parsed.workouts[0].name).toBe('Morning Lift')
+    expect(parsed.workouts[0].entries).toEqual([])
+    expect(parsed.workouts[1].name).toBe('Running')
+    expect(parsed.sets).toBe(0)
+    expect(parsed.matched).toBe(0)
+  })
+
+  it('computes end time from duration', () => {
+    const csv = 'Date,Title,Time\n2026-08-10 06:00:00,Lift,00:45:00\n'
+    const parsed = parseGarminCSV(csv)
+    expect(parsed.workouts[0].end - parsed.workouts[0].start).toBe(45 * 60000)
+  })
+
+  it('missing duration leaves end equal to start', () => {
+    const csv = 'Date,Title\n2026-08-10,Lift\n'
+    const parsed = parseGarminCSV(csv)
+    expect(parsed.workouts[0].end).toBe(parsed.workouts[0].start)
+  })
+
+  it('merges same-date rows into one workout', () => {
+    const csv = 'Date,Activity Type,Time\n' +
+      '2026-08-10 06:00:00,Strength Training,00:30:00\n' +
+      '2026-08-10 18:00:00,Running,00:20:00\n'
+    const parsed = parseGarminCSV(csv)
+    expect(parsed.workouts).toHaveLength(1)
+    expect(parsed.workouts[0].name).toBe('Strength Training + Running')
+  })
+
+  it('rejects a file with an exercise column (not a Garmin summary)', () => {
+    const csv = 'Date,Exercise,Weight,Reps\n2026-08-10,Squat,100,5\n'
+    expect(parseGarminCSV(csv).error).toBe('unrecognised')
+  })
+
+  it('rejects a file with no date or title/type column', () => {
+    const csv = 'Foo,Bar\n1,2\n'
+    expect(parseGarminCSV(csv).error).toBe('unrecognised')
+  })
+
+  it('rejects an empty file', () => {
+    expect(parseGarminCSV('Date,Title\n').error).toBe('empty')
+  })
+})
+
+describe('detectSource — Garmin', () => {
+  it('recognises a Garmin-shaped header', () => {
+    expect(detectSource(['Date', 'Activity Type', 'Title', 'Time'])).toBe('Garmin')
+  })
+  it('does not misclassify a per-set export as Garmin', () => {
+    expect(detectSource(['Date', 'Exercise', 'Weight', 'Reps'])).not.toBe('Garmin')
   })
 })
