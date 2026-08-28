@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseWorkoutCSV, parseGarminCSV, detectSource } from './import-csv.js'
+import { parseWorkoutCSV, parseGarminCSV, detectSource, parseImport, mergeImport } from './import-csv.js'
 
 const CSV = [
   'Date,Exercise,Weight,Reps,Set Type',
@@ -111,5 +111,47 @@ describe('detectSource — Garmin', () => {
   })
   it('does not misclassify a per-set export as Garmin', () => {
     expect(detectSource(['Date', 'Exercise', 'Weight', 'Reps'])).not.toBe('Garmin')
+  })
+})
+
+describe('parseImport — Garmin fallback', () => {
+  it('routes a Garmin-shaped file through parseGarminCSV', () => {
+    const csv = 'Date,Activity Type,Title,Time\n2026-08-10 06:00:00,Strength Training,Morning Lift,00:45:00\n'
+    const parsed = parseImport(csv, { unit: 'kg' })
+    expect(parsed.source).toBe('Garmin')
+    expect(parsed.kind).toBe('workouts')
+    expect(parsed.workouts[0].entries).toEqual([])
+  })
+
+  it('a per-set export still wins over the Garmin fallback', () => {
+    const csv = 'workout name,exercise,date,weight kg,reps\nLeg Day,Squat,2026-08-21,120,5\n'
+    const parsed = parseImport(csv, { unit: 'kg' })
+    expect(parsed.source).not.toBe('Garmin')
+    expect(parsed.workouts[0].entries[0].sets[0].w).toBe(120)
+  })
+
+  it('a bodyweight export still wins over the Garmin fallback', () => {
+    const csv = 'date,weight kg\n2026-08-21,82.5\n'
+    const parsed = parseImport(csv, { unit: 'kg' })
+    expect(parsed.kind).toBe('bodyweight')
+  })
+
+  it('a genuinely unrecognisable file still reports the original error', () => {
+    const csv = 'Foo,Bar\n1,2\n'
+    const parsed = parseImport(csv, { unit: 'kg' })
+    expect(parsed.error).toBe('unrecognised')
+  })
+})
+
+describe('mergeImport — Garmin placeholder workouts', () => {
+  it('re-importing the same Garmin file twice adds nothing the second time', () => {
+    const csv = 'Date,Title\n2026-08-10,Morning Lift\n'
+    const parsed = parseGarminCSV(csv)
+    const S = { workouts: [], customEx: [], exWeights: {} }
+    const first = mergeImport(S, parsed)
+    expect(first.added).toBe(1)
+    const second = mergeImport(S, parseGarminCSV(csv))
+    expect(second.added).toBe(0)
+    expect(S.workouts).toHaveLength(1)
   })
 })

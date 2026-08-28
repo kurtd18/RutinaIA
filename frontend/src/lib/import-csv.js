@@ -614,7 +614,9 @@ export function parseImport(text, opts) {
   const asWorkouts = parseWorkoutCSV(s, opts)
   if (!asWorkouts.error) return asWorkouts
   const asWeights = parseBodyweight(s, opts)
-  return asWeights.error ? asWorkouts : asWeights
+  if (!asWeights.error) return asWeights
+  const asGarmin = parseGarminCSV(s)
+  return asGarmin.error ? asWorkouts : asGarmin
 }
 
 /* --------------------------------------------------------------- merge ---- */

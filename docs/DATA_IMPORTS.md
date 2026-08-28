@@ -34,6 +34,13 @@ These apps have been tested to work without adjustments:
 | **FitNotes 2 (iOS)** | Export workouts as CSV; also manual/auto iCloud backups |
 | **Strong** | Settings → Export Data | 
 | **Hevy** | Profile → Settings → Export & Import Data (Workouts or Measurements) | 
+| **Garmin Connect** | Activities list → **Export CSV** (see note below) |
+
+> Note: Garmin's export is a session summary (date, activity type, duration) — it does not
+> contain per-exercise sets, reps or weight, because Garmin doesn't expose that data in any
+> exportable format. Importing a Garmin file creates one empty training-day entry per session so
+> your calendar/streak history is complete; you still fill in weights and reps for that day
+> yourself, same as logging a workout normally.
 
 You can also create your own `CSV` file:
 
@@ -53,8 +60,9 @@ These field names are supported:
 | `date` | `date`, `workout date` |
 | `startTime` | `start time` |
 | `endTime` | `end time` |
-| `workoutName` | `workout name`, `title` |
+| `workoutName` | `workout name`, `title`, `activity name` |
 | `category` | `category`, `body part`, `muscle group` |
+| `activityType` | `activity type`, `type` |
 | `weightKg` | `weight kg` |
 | `weightLb` | `weight lbs`, `weight lb` |
 | `weight` | `weight` |
@@ -66,7 +74,7 @@ These field names are supported:
 | `distance` | `distance` |
 | `distanceUnit` | `distance unit` |
 | `seconds` | `seconds`, `duration seconds` |
-| `time` | `time`, `duration` |
+| `time` | `time`, `duration`, `elapsed time`, `moving time` |
 | `setType` | `set type` |
 | `note` | `comment`, `comments`, `notes`, `note` |
 
