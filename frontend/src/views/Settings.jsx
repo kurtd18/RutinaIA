@@ -359,6 +359,17 @@ function PushCard({ S, update, toast }) {
             onChange={e => update(s => { s.reminder = { ...(s.reminder || DEF.reminder), time: e.target.value, tz: localTZ() } })} />
         </Row>
       )}
+      {on && (
+        <Row icon="flame" iconTint="var(--red)" title={t('Streak reminder')}>
+          <Switch checked={!!S.reminder?.streakOn} onChange={() => update(s => { s.reminder = { ...(s.reminder || DEF.reminder), streakOn: !s.reminder?.streakOn, tz: localTZ() } })} />
+        </Row>
+      )}
+      {on && S.reminder?.streakOn && (
+        <Row icon="calendar" iconTint="var(--red)" title={t('Days before reminding')}>
+          <input type="number" min="1" max="30" className="timef" value={S.reminder?.streakDays ?? 3}
+            onChange={e => update(s => { s.reminder = { ...(s.reminder || DEF.reminder), streakDays: Math.max(1, Math.min(30, Number(e.target.value) || 3)), tz: localTZ() } })} />
+        </Row>
+      )}
     </Section>
     {on && <div style={{ marginTop: -12, marginBottom: 22 }}><Button size="sm" icon="bell" onClick={test}>{t('Send test notification')}</Button></div>}
   </>
