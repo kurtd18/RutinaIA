@@ -51,14 +51,18 @@ db.subs = db.subs || [];
 db.invites = db.invites || [];
 const isAdmin = user => !!user && (user.admin === true || ADMIN_UIDS.includes(user.id));
 function saveDb() { atomicWrite(dbFile, JSON.stringify(db, null, 2)); }
-function atomicWrite(file, content) {
+function atomicWrite(file, content, opts) {
   const tmp = file + '.tmp';
-  fs.writeFileSync(tmp, content);
+  fs.writeFileSync(tmp, content, opts);
   fs.renameSync(tmp, file);
 }
 const stateFile = uid => path.join(DATA, 'state-' + uid.replace(/[^a-zA-Z0-9_-]/g, '') + '.json');
 function readState(uid) {
   try { return JSON.parse(fs.readFileSync(stateFile(uid), 'utf8')); } catch { return null; }
+}
+const aiKeyFile = uid => path.join(DATA, 'ai-' + uid.replace(/[^a-zA-Z0-9_-]/g, '') + '.json');
+function readAiKey(uid) {
+  try { return JSON.parse(fs.readFileSync(aiKeyFile(uid), 'utf8')).key || null; } catch { return null; }
 }
 
 /* ---------- push notifications (Web Push / VAPID) ---------- */
@@ -532,6 +536,29 @@ const routes = {
     const user = readSession(req);
     if (!user) return json(res, 401, { error: 'not signed in' });
     json(res, 200, { user: { id: user.id, name: user.name, admin: isAdmin(user) } });
+  },
+
+  'POST /api/ai/key': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return json(res, 401, { error: 'not signed in' });
+    const body = await readBody(req);
+    const key = String(body.key || '').trim();
+    if (!key) return json(res, 400, { error: 'key required' });
+    atomicWrite(aiKeyFile(user.id), JSON.stringify({ key }), { mode: 0o600 });
+    json(res, 200, { ok: true });
+  },
+
+  'DELETE /api/ai/key': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return json(res, 401, { error: 'not signed in' });
+    try { fs.unlinkSync(aiKeyFile(user.id)); } catch {}
+    json(res, 200, { ok: true });
+  },
+
+  'GET /api/ai/status': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return json(res, 401, { error: 'not signed in' });
+    json(res, 200, { configured: !!readAiKey(user.id) });
   },
 
   'POST /api/register/options': async (req, res) => {
