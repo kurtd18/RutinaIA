@@ -4,14 +4,14 @@ import { useStore, DEF, hasData } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { ACCENTS, todayISO, localTZ } from '../lib/format.js'
 import { effortOf } from '../lib/history.js'
-import { api, webauthnOK, passkeyLogin, passkeyRegister, IS_ANDROID } from '../lib/api.js'
+import { api, webauthnOK, passkeyLogin, passkeyRegister, IS_ANDROID, getAiStatus, saveAiKey, deleteAiKey } from '../lib/api.js'
 import { pushSupported, enablePush, disablePush, sendTestPush } from '../lib/push.js'
 import { wakeLockSupported } from '../lib/wakelock.js'
 import { t, LANGS, INSTR_LANGS } from '../lib/i18n.js'
 import { DEMO, REPO } from '../lib/demo.js'
 import { MOBILE, shareExport, syncReminder } from '../lib/mobile.js'
 import { ConnectSheet } from './MobileOnboarding.jsx'
-import { loadStarterPlan, confirmSheet, importFromApp, equipmentProfileSheet } from '../sheets.jsx'
+import { loadStarterPlan, confirmSheet, importFromApp, equipmentProfileSheet, aiSuggestSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
 import { Section, Row, SelectRow, Switch, Segmented, Button, TextField } from '../components/ui.jsx'
 
@@ -159,6 +159,9 @@ export default function Settings() {
     </Section>
 
     {(user || MOBILE) && <NotificationsCard S={S} update={update} toast={toast} />}
+
+    {/* AI needs a place to store the user's own Anthropic key server-side, so this is signed-in-only */}
+    {user && <AiSuggestCard toast={toast} />}
 
     {/* ---------- equipment ---------- */}
     <EquipmentCard S={S} update={update} />
@@ -359,6 +362,51 @@ function PushCard({ S, update, toast }) {
     </Section>
     {on && <div style={{ marginTop: -12, marginBottom: 22 }}><Button size="sm" icon="bell" onClick={test}>{t('Send test notification')}</Button></div>}
   </>
+}
+
+// AI routine suggestion: the user brings their own Anthropic API key, stored server-side per
+// profile (POST/DELETE /api/ai/key). The "Suggest a routine" entry point only renders once
+// GET /api/ai/status confirms a key is on file — never just disabled, so there's nothing to tap
+// that would fail with "no key configured".
+function AiSuggestCard({ toast }) {
+  const [configured, setConfigured] = useState(null) // null = still loading
+  const [key, setKey] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => { getAiStatus().then(setConfigured).catch(() => setConfigured(false)) }, [])
+
+  const save = async () => {
+    const k = key.trim()
+    if (!k) { toast(t('Enter an API key')); return }
+    setBusy(true)
+    try { await saveAiKey(k); setKey(''); setConfigured(true); toast(t('API key saved')) }
+    catch (e) { toast(e.message || t('Could not save the key')) }
+    setBusy(false)
+  }
+  const remove = () => confirmSheet({
+    title: t('Remove API key?'), message: t('You can add it again anytime.'), confirmText: t('Remove'), danger: true,
+    onConfirm: async () => {
+      try { await deleteAiKey(); setConfigured(false); toast(t('API key removed')) }
+      catch (e) { toast(e.message || t('Could not remove the key')) }
+    },
+  })
+
+  return <Section title={t('AI routine suggestion')} footer={t('Uses your own Anthropic API key — never shared, stored only on your server.')}>
+    {configured ? (
+      <Row icon="key" iconTint="var(--teal)" title={t('API key saved')} subtitle={t('Anthropic')}>
+        <Button size="sm" variant="ghost" className="dim" onClick={remove}>{t('Remove')}</Button>
+      </Row>
+    ) : (
+      <Row icon="key" iconTint="var(--teal)" title={t('Anthropic API key')}>
+        <input type="password" className="input" style={{ maxWidth: 160 }} placeholder={t('sk-ant-…')}
+          value={key} onChange={e => setKey(e.target.value)} disabled={busy} />
+        <Button size="sm" onClick={save} disabled={busy}>{t('Save')}</Button>
+      </Row>
+    )}
+    {configured && (
+      <Row icon="sparkles" iconTint="var(--acc)" title={t('Suggest a routine')} accessory="chevron" onClick={aiSuggestSheet} />
+    )}
+  </Section>
 }
 
 // Equipment profiles ("Home", "Gym", ...) — each an id/name/eq-list; the active one filters

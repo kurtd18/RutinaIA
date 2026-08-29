@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import { buildTrainingSummary } from './ai-suggest.js'
+import { buildTrainingSummary, sanitizeAiRoutine } from './ai-suggest.js'
 
 const daysAgo = n => Date.now() - n * 24 * 3600000
 
@@ -64,5 +64,44 @@ describe('buildTrainingSummary', () => {
     const summary = buildTrainingSummary(S)
     expect(summary.muscleBalance).toBeTruthy()
     expect(Object.keys(summary.muscleBalance).length).toBeGreaterThan(0)
+  })
+})
+
+describe('sanitizeAiRoutine', () => {
+  const exIdx = { '0025': { id: '0025' }, '0030': { id: '0030' } }
+
+  test('drops exercises whose id is not in the local library', () => {
+    const routine = { name: 'Push', emoji: '💪', ex: [{ id: '0025', sets: 3, reps: 8, weight: 60 }, { id: 'not-real', sets: 3, reps: 8, weight: 60 }] }
+    const out = sanitizeAiRoutine(routine, exIdx)
+    expect(out.ex).toHaveLength(1)
+    expect(out.ex[0].id).toBe('0025')
+  })
+
+  test('returns null when every exercise id is unrecognised (treat as provider error upstream)', () => {
+    const routine = { name: 'Push', emoji: '💪', ex: [{ id: 'bogus', sets: 3, reps: 8, weight: 60 }] }
+    expect(sanitizeAiRoutine(routine, exIdx)).toBeNull()
+  })
+
+  test('returns null for a malformed routine (missing ex array)', () => {
+    expect(sanitizeAiRoutine({ name: 'x' }, exIdx)).toBeNull()
+    expect(sanitizeAiRoutine(null, exIdx)).toBeNull()
+  })
+
+  test('clamps sets/reps/weight to sane ranges', () => {
+    const routine = { name: 'Push', emoji: '💪', ex: [{ id: '0025', sets: 999, reps: -5, weight: -10 }, { id: '0030', sets: 0, reps: 99999, weight: 999999 }] }
+    const out = sanitizeAiRoutine(routine, exIdx)
+    expect(out.ex[0].sets).toBeLessThanOrEqual(10)
+    expect(out.ex[0].reps).toBeGreaterThanOrEqual(1)
+    expect(out.ex[0].weight).toBe(0)
+    expect(out.ex[1].sets).toBeGreaterThanOrEqual(1)
+    expect(out.ex[1].reps).toBeLessThanOrEqual(100)
+    expect(out.ex[1].weight).toBeLessThanOrEqual(1000)
+  })
+
+  test('trims/defaults name and emoji', () => {
+    const routine = { name: '   ', emoji: 12, ex: [{ id: '0025', sets: 3, reps: 8, weight: 60 }] }
+    const out = sanitizeAiRoutine(routine, exIdx)
+    expect(out.name).toBe('AI routine')
+    expect(out.emoji).toBe('✨')
   })
 })

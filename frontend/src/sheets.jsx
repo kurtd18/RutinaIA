@@ -23,6 +23,8 @@ import { nextPrescription, applyPrescription, policyFor, defaultIncrement, POLIC
 import { MOBILE, shareExport } from './lib/mobile.js'
 import { buildCompletedWorkout } from './lib/finish-workout.js'
 import { isWarmupRow } from './lib/workout-model.js'
+import { buildTrainingSummary, sanitizeAiRoutine } from './lib/ai-suggest.js'
+import { suggestRoutine } from './lib/api.js'
 
 const S = () => useStore.getState().S
 const update = (...a) => useStore.getState().update(...a)
@@ -253,6 +255,73 @@ function GoalSheet({ close }) {
   </>
 }
 export const goalSheet = () => ui().openSheet(close => <GoalSheet close={close} />)
+
+/* ============================ AI routine suggestion ============================ */
+// Preview-before-apply: the model's structured output is untrusted, same trust level as an
+// imported CSV row (see import-csv.js) — sanitizeAiRoutine (lib/ai-suggest.js) drops any
+// exercise id not in the local library and clamps sets/reps/weight before this ever renders
+// or "Add this routine" commits anything to the store.
+function AiSuggestPreview({ routine, close }) {
+  const add = () => {
+    update(s => { s.routines.push({ id: uid(), name: routine.name, emoji: routine.emoji, ex: routine.ex }) })
+    close()
+    toast(t('Routine added: {0}', routine.name))
+  }
+  return <>
+    <h3>{routine.emoji} {routine.name}</h3>
+    <div className="muted small" style={{ marginBottom: 12 }}>{t('Suggested by AI — review before adding it to your plan.')}</div>
+    <div className="list" style={{ gap: 0, marginBottom: 14 }}>
+      {routine.ex.map((e, i) => {
+        const ex = EXIDX[e.id]
+        return <div key={i} className="row between" style={{ padding: '9px 2px', borderBottom: '1px solid var(--sep)' }}>
+          <span className="capitalize small">{ex ? exerciseNameFor(ex) : e.id}</span>
+          <span className="small muted">{e.sets} × {e.reps}{e.weight ? ' · ' + fmtNum(e.weight) : ''}</span>
+        </div>
+      })}
+    </div>
+    <Button variant="primary" onClick={add}>{t('Add this routine')}</Button>
+    <div style={{ height: 8 }} />
+    <Button variant="ghost" className="dim" onClick={close}>{t('Discard')}</Button>
+  </>
+}
+
+function aiErrorMessage(error) {
+  if (error === 'declined') return t('The AI provider declined this request.')
+  return t('Could not get a suggestion right now — try again in a moment.')
+}
+
+function AiGoalsSheet({ close }) {
+  const [goals, setGoals] = useState('')
+  const [busy, setBusy] = useState(false)
+  const submit = async () => {
+    setBusy(true)
+    try {
+      const summary = buildTrainingSummary(S())
+      const result = await suggestRoutine(summary, goals.trim())
+      if (!result.ok) { toast(aiErrorMessage(result.error)); close(); return }
+      const clean = sanitizeAiRoutine(result.routine, EXIDX)
+      if (!clean) { toast(aiErrorMessage('provider error')); close(); return }
+      close()
+      ui().openSheet(c2 => <AiSuggestPreview routine={clean} close={c2} />)
+    } catch (e) {
+      toast(e.message || t('Could not get a suggestion right now — try again in a moment.'))
+      close()
+    } finally { setBusy(false) }
+  }
+  return <>
+    <h3>{t('Suggest a routine')}</h3>
+    <div className="muted small" style={{ marginBottom: 14 }}>
+      {t('Tell the AI what you want out of your next routine — it sees your recent training, not your goals text elsewhere.')}
+    </div>
+    <textarea className="input" rows={4} maxLength={2000} value={goals} onChange={e => setGoals(e.target.value)}
+      placeholder={t('e.g. focus on upper body, 4 days a week, avoid the leg press')} disabled={busy} />
+    <div style={{ height: 14 }} />
+    <Button variant="primary" onClick={submit} disabled={busy}>{busy ? t('Thinking…') : t('Suggest a routine')}</Button>
+    <div style={{ height: 8 }} />
+    <Button variant="ghost" className="dim" onClick={close} disabled={busy}>{t('Cancel')}</Button>
+  </>
+}
+export const aiSuggestSheet = () => ui().openSheet(close => <AiGoalsSheet close={close} />)
 
 /* ============================ exercise detail ============================ */
 // Estimated 1RM for one exercise (issue #18): what the log already implies, plus a calculator

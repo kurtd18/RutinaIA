@@ -24,6 +24,21 @@ export async function api(path, opts) {
   return data
 }
 
+// AI routine suggestion (Settings + sheets.jsx): key management plus the one relay call.
+export async function getAiStatus() {
+  const r = await api('/api/ai/status')
+  return !!r.configured
+}
+export async function saveAiKey(key) {
+  return api('/api/ai/key', { method: 'POST', body: JSON.stringify({ key }) })
+}
+export async function deleteAiKey() {
+  return api('/api/ai/key', { method: 'DELETE' })
+}
+export async function suggestRoutine(summary, goals) {
+  return api('/api/ai/suggest', { method: 'POST', body: JSON.stringify({ summary, goals }) })
+}
+
 // Bootstraps the connection itself: the base isn't configured yet (that's what this call decides),
 // so it talks straight to the server the user typed in, no Authorization header.
 export async function pairRedeem(serverBase, code) {
