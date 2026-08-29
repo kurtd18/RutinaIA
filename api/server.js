@@ -170,6 +170,92 @@ async function sendPush(userId, payload) {
   if (dirty) saveDb();
 }
 
+/* ---------- AI routine suggestion (Anthropic, bring-your-own-key) ---------- */
+// Raw HTTPS, no SDK — api/ has a hard two-dependency limit (see CONTRIBUTING.md) and already
+// makes outbound HTTPS calls this way for Web Push. Unlike the push path, the hostname here is
+// fixed (api.anthropic.com), never user-supplied, so none of PUSH_AGENT's SSRF guarding applies.
+const ANTHROPIC_HOST = 'api.anthropic.com'
+const ANTHROPIC_TIMEOUT_MS = 30000
+
+function buildAnthropicRequestBody(summary, goals) {
+  return {
+    model: 'claude-opus-5',
+    max_tokens: 4096,
+    output_config: {
+      format: {
+        type: 'json_schema',
+        schema: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            emoji: { type: 'string' },
+            ex: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  sets: { type: 'integer' },
+                  reps: { type: 'integer' },
+                  weight: { type: 'number' },
+                  mode: { type: 'string', enum: ['reps'] },
+                },
+                required: ['id', 'sets', 'reps', 'weight', 'mode'],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ['name', 'emoji', 'ex'],
+          additionalProperties: false,
+        },
+      },
+    },
+    messages: [{
+      role: 'user',
+      content: `Training summary:\n${JSON.stringify(summary)}\n\nGoals: ${goals}\n\nPropose a single weekly routine as the specified JSON shape.`,
+    }],
+  }
+}
+
+function mapAnthropicResponse(status, body) {
+  if (status !== 200) return { ok: false, error: 'provider error' }
+  let parsed
+  try { parsed = JSON.parse(body) } catch { return { ok: false, error: 'provider error' } }
+  if (parsed.stop_reason === 'refusal') return { ok: false, error: 'declined' }
+  const textBlock = (parsed.content || []).find(b => b.type === 'text')
+  if (!textBlock) return { ok: false, error: 'provider error' }
+  let routine
+  try { routine = JSON.parse(textBlock.text) } catch { return { ok: false, error: 'provider error' } }
+  return { ok: true, routine }
+}
+
+function callAnthropic(apiKey, summary, goals) {
+  return new Promise((resolve) => {
+    const payload = JSON.stringify(buildAnthropicRequestBody(summary, goals))
+    const req = https.request({
+      host: ANTHROPIC_HOST,
+      path: '/v1/messages',
+      method: 'POST',
+      timeout: ANTHROPIC_TIMEOUT_MS,
+      headers: {
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(payload),
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+    }, res => {
+      let body = ''
+      res.on('data', d => { body += d })
+      res.on('end', () => resolve(mapAnthropicResponse(res.statusCode, body)))
+    })
+    // Never log `payload` or the request object here — it carries the caller's API key in a
+    // header. Only the error's own message (never the request) is safe to surface.
+    req.on('error', () => resolve({ ok: false, error: 'provider error' }))
+    req.on('timeout', () => { req.destroy(); resolve({ ok: false, error: 'provider error' }) })
+    req.end(payload)
+  })
+}
+
 // Rest-timer alerts: client schedules on start/extend, cancels on skip or on-screen completion —
 // this only fires when the tab was backgrounded/suspended and never got to cancel it itself.
 const restTimers = new Map(); // userId -> Timeout
@@ -559,6 +645,18 @@ const routes = {
     const user = readSession(req);
     if (!user) return json(res, 401, { error: 'not signed in' });
     json(res, 200, { configured: !!readAiKey(user.id) });
+  },
+
+  'POST /api/ai/suggest': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return json(res, 401, { error: 'not signed in' });
+    const apiKey = readAiKey(user.id);
+    if (!apiKey) return json(res, 400, { error: 'no key configured' });
+    const body = await readBody(req);
+    if (!body.summary || typeof body.summary !== 'object') return json(res, 400, { error: 'summary required' });
+    const goals = String(body.goals || '').trim().slice(0, 2000);
+    const result = await callAnthropic(apiKey, body.summary, goals);
+    json(res, 200, result);
   },
 
   'POST /api/register/options': async (req, res) => {
