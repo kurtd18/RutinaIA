@@ -66,6 +66,14 @@ function readAiKey(uid) {
   try { return JSON.parse(fs.readFileSync(aiKeyFile(uid), 'utf8')).key || null; } catch { return null; }
 }
 
+const stravaFile = uid => path.join(DATA, 'strava-' + uid.replace(/[^a-zA-Z0-9_-]/g, '') + '.json');
+function readStravaConfig(uid) {
+  try { return JSON.parse(fs.readFileSync(stravaFile(uid), 'utf8')); } catch { return null; }
+}
+function writeStravaConfig(uid, config) {
+  atomicWrite(stravaFile(uid), JSON.stringify(config), { mode: 0o600 });
+}
+
 /* ---------- push notifications (Web Push / VAPID) ---------- */
 const vapidFile = path.join(DATA, 'vapid.json');
 let vapid;
@@ -671,6 +679,32 @@ const routes = {
     const user = readSession(req);
     if (!user) return json(res, 401, { error: 'not signed in' });
     json(res, 200, { configured: !!readAiKey(user.id) });
+  },
+
+  'POST /api/strava/config': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return json(res, 401, { error: 'not signed in' });
+    const body = await readBody(req);
+    const clientId = String(body.clientId || '').trim();
+    const clientSecret = String(body.clientSecret || '').trim();
+    if (!clientId || !clientSecret) return json(res, 400, { error: 'clientId and clientSecret required' });
+    const existing = readStravaConfig(user.id) || {};
+    writeStravaConfig(user.id, { ...existing, clientId, clientSecret });
+    json(res, 200, { ok: true });
+  },
+
+  'DELETE /api/strava/config': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return json(res, 401, { error: 'not signed in' });
+    try { fs.unlinkSync(stravaFile(user.id)); } catch {}
+    json(res, 200, { ok: true });
+  },
+
+  'GET /api/strava/status': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return json(res, 401, { error: 'not signed in' });
+    const cfg = readStravaConfig(user.id);
+    json(res, 200, { configured: !!(cfg?.clientId && cfg?.clientSecret), connected: !!cfg?.accessToken });
   },
 
   'POST /api/ai/suggest': async (req, res) => {
