@@ -21,6 +21,39 @@ function filterStrengthActivities(activities) {
   return (activities || []).filter(a => a.type === 'WeightTraining')
 }
 
+// Mirrors the poll loop's cursor-advance decision in api/server.js: fetchStravaActivities now
+// resolves null on any failure (bad status/network/timeout/parse error) and an array (possibly
+// empty) only on a genuine 200. The poll loop must not advance lastPollAt on a failed fetch, and
+// must not advance it either when there were strength activities to write but no state file
+// existed yet to write them into (stateExists === false) — those activities need to be retried
+// on the next tick rather than silently dropped.
+function shouldAdvancePollCursor(activities, stateExists) {
+  if (activities === null) return false // fetch failed — retry this window next tick
+  const strengthActivities = filterStrengthActivities(activities)
+  if (strengthActivities.length && !stateExists) return false // nowhere to write them — retry
+  return true
+}
+
+test('shouldAdvancePollCursor does not advance when the fetch failed', () => {
+  assert.equal(shouldAdvancePollCursor(null, true), false)
+})
+
+test('shouldAdvancePollCursor advances when the fetch succeeded with genuinely no activities', () => {
+  assert.equal(shouldAdvancePollCursor([], true), true)
+})
+
+test('shouldAdvancePollCursor advances when strength activities were written into existing state', () => {
+  assert.equal(shouldAdvancePollCursor([{ type: 'WeightTraining' }], true), true)
+})
+
+test('shouldAdvancePollCursor does not advance when strength activities had no state file to write into', () => {
+  assert.equal(shouldAdvancePollCursor([{ type: 'WeightTraining' }], false), false)
+})
+
+test('shouldAdvancePollCursor advances when there were activities but none were strength, regardless of state', () => {
+  assert.equal(shouldAdvancePollCursor([{ type: 'Run' }], false), true)
+})
+
 test('isTokenExpired treats a missing expiresAt as expired', () => {
   assert.equal(isTokenExpired(undefined, Date.now()), true)
 })

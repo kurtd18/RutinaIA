@@ -430,6 +430,16 @@ function StravaSyncCard({ toast }) {
   const [busy, setBusy] = useState(false)
 
   useEffect(() => { getStravaStatus().then(setStatus).catch(() => {}) }, [])
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const flag = params.get('strava')
+    if (!flag) return
+    if (flag === 'error') toast(t('Could not connect to Strava — check your credentials and try again.'))
+    else if (flag === 'connected') toast(t('Connected to Strava'))
+    params.delete('strava')
+    const qs = params.toString()
+    window.history.replaceState(null, '', window.location.pathname + (qs ? '?' + qs : ''))
+  }, [])
 
   const save = async () => {
     const id = clientId.trim(), secret = clientSecret.trim()
@@ -468,10 +478,10 @@ function StravaSyncCard({ toast }) {
         onClick={() => { window.location.href = stravaAuthorizeUrl() }} />
     )}
     {status.connected && (
-      <>
-        <Row icon="checkCircle" iconTint="var(--teal)" title={t('Connected to Strava')} />
-        <Row icon="signOut" iconTint="var(--red)" title={t('Disconnect')} danger onClick={disconnect} />
-      </>
+      <Row icon="checkCircle" iconTint="var(--teal)" title={t('Connected to Strava')} />
+    )}
+    {status.configured && (
+      <Row icon="signOut" iconTint="var(--red)" title={t('Disconnect')} danger onClick={disconnect} />
     )}
   </Section>
 }

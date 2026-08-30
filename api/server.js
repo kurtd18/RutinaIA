@@ -350,12 +350,12 @@ function fetchStravaActivities(accessToken, afterEpoch) {
       let body = '';
       res.on('data', d => { body += d });
       res.on('end', () => {
-        if (res.statusCode !== 200) return resolve([]);
-        try { resolve(JSON.parse(body)); } catch { resolve([]); }
+        if (res.statusCode !== 200) return resolve(null);
+        try { resolve(JSON.parse(body)); } catch { resolve(null); }
       });
     });
-    req.on('error', () => resolve([]));
-    req.on('timeout', () => { req.destroy(); resolve([]); });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
     req.end();
   });
 }
@@ -758,16 +758,22 @@ setInterval(async () => {
       const accessToken = await ensureFreshStravaToken(user.id, cfg);
       if (!accessToken) continue;
       const activities = await fetchStravaActivities(accessToken, cfg.lastPollAt || Math.floor(Date.now() / 1000));
+      if (activities === null) continue; // fetch failed (bad status/network/timeout/parse) — retry this window next tick
       const strengthActivities = filterStrengthActivities(activities);
+      let wrote = true;
       if (strengthActivities.length) {
         const S = readState(user.id);
         if (S) {
           S.workouts = [...(S.workouts || []), ...strengthActivities.map(a => toPlaceholderWorkout(a))];
           atomicWrite(stateFile(user.id), JSON.stringify(S));
+        } else {
+          wrote = false; // no state file yet — don't advance the cursor, retry these activities next tick
         }
       }
-      const latest = readStravaConfig(user.id) || cfg; // re-read: ensureFreshStravaToken may have updated tokens
-      writeStravaConfig(user.id, { ...latest, lastPollAt: Math.floor(Date.now() / 1000) });
+      if (wrote) {
+        const latest = readStravaConfig(user.id) || cfg; // re-read: ensureFreshStravaToken may have updated tokens
+        writeStravaConfig(user.id, { ...latest, lastPollAt: Math.floor(Date.now() / 1000) });
+      }
     } catch (e) {
       console.error('strava poll failed for user', user.id, e.message);
     }
