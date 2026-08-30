@@ -309,6 +309,57 @@ function refreshStravaToken(clientId, clientSecret, refreshToken) {
   return stravaTokenRequest(clientId, clientSecret, { refresh_token: refreshToken, grant_type: 'refresh_token' });
 }
 
+function isTokenExpired(expiresAt, now = Date.now()) {
+  return !expiresAt || expiresAt <= Math.floor(now / 1000);
+}
+
+function toPlaceholderWorkout(activity, idFn = () => 'sw' + crypto.randomBytes(9).toString('base64url')) {
+  const startMs = new Date(activity.start_date).getTime();
+  const durationMs = (activity.elapsed_time || 0) * 1000;
+  return {
+    id: idFn(), d: activity.start_date.slice(0, 10),
+    start: startMs, end: startMs + durationMs,
+    routineId: null, name: activity.name || 'Strava activity',
+    entries: [], prs: [], vol: 0,
+  };
+}
+
+function filterStrengthActivities(activities) {
+  return (activities || []).filter(a => a.type === 'WeightTraining');
+}
+
+// refreshStravaToken's response has no `athlete` field on a token-refresh call (only the initial
+// authorization exchange includes it), so `fresh.athleteId` comes back undefined here. Filter out
+// undefined fields before spreading so that doesn't clobber the athleteId stored at connect time.
+async function ensureFreshStravaToken(uid, cfg) {
+  if (!isTokenExpired(cfg.expiresAt)) return cfg.accessToken;
+  const fresh = await refreshStravaToken(cfg.clientId, cfg.clientSecret, cfg.refreshToken);
+  if (!fresh) return null;
+  const cleanFresh = Object.fromEntries(Object.entries(fresh).filter(([, v]) => v !== undefined));
+  writeStravaConfig(uid, { ...cfg, ...cleanFresh });
+  return fresh.accessToken;
+}
+
+function fetchStravaActivities(accessToken, afterEpoch) {
+  return new Promise((resolve) => {
+    const path = '/api/v3/athlete/activities?after=' + encodeURIComponent(afterEpoch) + '&per_page=100';
+    const req = https.request({
+      host: STRAVA_HOST, path, method: 'GET', timeout: 30000,
+      headers: { authorization: 'Bearer ' + accessToken },
+    }, res => {
+      let body = '';
+      res.on('data', d => { body += d });
+      res.on('end', () => {
+        if (res.statusCode !== 200) return resolve([]);
+        try { resolve(JSON.parse(body)); } catch { resolve([]); }
+      });
+    });
+    req.on('error', () => resolve([]));
+    req.on('timeout', () => { req.destroy(); resolve([]); });
+    req.end();
+  });
+}
+
 // Rest-timer alerts: client schedules on start/extend, cancels on skip or on-screen completion —
 // this only fires when the tab was backgrounded/suspended and never got to cancel it itself.
 const restTimers = new Map(); // userId -> Timeout
@@ -694,6 +745,34 @@ if (AUDIT_ON) {
   compactAudit();                                // prune on boot, seed auditSeq/auditCount
   setInterval(compactAudit, 3600000).unref();    // honour AUDIT_DAYS on an idle instance too
 }
+
+// Strava sync: every 6 hours, pull new WeightTraining activities for every connected user and
+// append them as placeholder workouts. One user's failure (expired/revoked token, network error)
+// must never stop this loop for anyone else — every per-user step below is wrapped so a thrown
+// error is caught and logged, not propagated.
+setInterval(async () => {
+  for (const user of db.users) {
+    try {
+      const cfg = readStravaConfig(user.id);
+      if (!cfg?.accessToken) continue;
+      const accessToken = await ensureFreshStravaToken(user.id, cfg);
+      if (!accessToken) continue;
+      const activities = await fetchStravaActivities(accessToken, cfg.lastPollAt || Math.floor(Date.now() / 1000));
+      const strengthActivities = filterStrengthActivities(activities);
+      if (strengthActivities.length) {
+        const S = readState(user.id);
+        if (S) {
+          S.workouts = [...(S.workouts || []), ...strengthActivities.map(a => toPlaceholderWorkout(a))];
+          atomicWrite(stateFile(user.id), JSON.stringify(S));
+        }
+      }
+      const latest = readStravaConfig(user.id) || cfg; // re-read: ensureFreshStravaToken may have updated tokens
+      writeStravaConfig(user.id, { ...latest, lastPollAt: Math.floor(Date.now() / 1000) });
+    } catch (e) {
+      console.error('strava poll failed for user', user.id, e.message);
+    }
+  }
+}, 21600000).unref();
 
 /* ---------- routes ---------- */
 const routes = {
