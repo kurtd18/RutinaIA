@@ -312,6 +312,8 @@ export default {
   'Push notifications': '推送通知',
   'Rest-timer alerts, even if RutinaIA is closed.': '休息计时提醒，即使 RutinaIA 已关闭。',
   'Workout day reminder': '训练日提醒',
+  'Streak reminder': '连续训练提醒',
+  'Days before reminding': '提醒前的天数',
   'Reminder time': '提醒时间',
   "Only sent on days you have a routine planned and haven't logged a workout yet.": '仅在安排了训练且尚未记录的日子发送。',
   'Timezone: {0} (auto-detected, updates if you travel).': '时区：{0}（自动检测，旅行时自动更新）。',

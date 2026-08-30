@@ -6,6 +6,8 @@ const COPY = {
     dayFallbackTitle: 'Workout planned today',
     dayRoutineSuffix: 'today',
     dayBody: "It's on your plan — let's go 💪",
+    streakTitle: "Don't break your streak 🔥",
+    streakBody: days => `It's been ${days} days since your last workout.`,
   },
   'pt-BR': {
     restTitle: 'Descanso terminado 💪',
@@ -14,6 +16,8 @@ const COPY = {
     dayFallbackTitle: 'Treino planejado para hoje',
     dayRoutineSuffix: 'hoje',
     dayBody: 'Está no seu plano — vamos treinar 💪',
+    streakTitle: 'Não perca sua sequência 🔥',
+    streakBody: days => `Já se passaram ${days} dias desde seu último treino.`,
   },
 };
 
@@ -36,5 +40,14 @@ export function dayReminderPush(lang, routine) {
       : copy.dayFallbackTitle,
     body: copy.dayBody,
     tag: 'day-reminder',
+  };
+}
+
+export function streakReminderPush(lang, days) {
+  const copy = copyFor(lang);
+  return {
+    title: copy.streakTitle,
+    body: copy.streakBody(days),
+    tag: 'streak-reminder',
   };
 }

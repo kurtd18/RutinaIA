@@ -312,6 +312,8 @@ export default {
   'Push notifications': 'Notifiche push',
   'Rest-timer alerts, even if RutinaIA is closed.': 'Avvisi del timer di riposo, anche con RutinaIA chiuso.',
   'Workout day reminder': 'Promemoria giorno di allenamento',
+  'Streak reminder': 'Promemoria serie',
+  'Days before reminding': 'Giorni prima del promemoria',
   'Reminder time': 'Orario promemoria',
   "Only sent on days you have a routine planned and haven't logged a workout yet.": 'Inviato solo nei giorni con una routine pianificata e nessun allenamento registrato.',
   'Timezone: {0} (auto-detected, updates if you travel).': 'Fuso orario: {0} (rilevato automaticamente, si aggiorna se viaggi).',
