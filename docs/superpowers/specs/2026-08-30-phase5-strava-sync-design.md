@@ -132,6 +132,24 @@ setInterval(async () => {
   own in-memory state always wins for what *it* wrote). A real fix (merge-on-write, versioning)
   is out of scope for this phase.
 
+  Two caveats found during final review, tracing the actual committed behavior rather than this
+  description: first, the poll loop's write to `state-<uid>.json` does not bump `S._ts` (the
+  timestamp field the frontend's `pullState` uses to decide whether to accept server state or
+  re-push local state). This means the interleaving that drops a Strava activity is not a narrow
+  same-instant race — it is common: any client that makes a local edit before its *next*
+  `pullState` call after a poll has already appended a Strava activity will overwrite that
+  appended activity when it pushes its own state, and since `lastPollAt` has already advanced
+  past that activity's timestamp, it is never retried. A long-running PWA session spanning an
+  overnight poll is a realistic everyday trigger for this, not an edge case.
+
+  Second, there is a narrower multi-device scenario where genuinely manually-entered data — not
+  just a Strava sync — could be lost: if the poll loop's write regresses the state file as above,
+  and a second device then pulls that regressed state and later pushes its own state with a
+  bumped `_ts`, the first device's next `pullState` will accept the second device's state as
+  authoritative, and the first device's own unsynced local edit can be lost. This requires a
+  specific multi-device timing chain and so is narrow, but it means this limitation should not be
+  described as fully self-correcting/safe the way the original wording implied.
+
 ## Frontend
 
 `frontend/src/lib/api.js` — four new exports, matching the existing wrapper style used by

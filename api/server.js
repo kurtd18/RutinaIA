@@ -66,6 +66,14 @@ function readAiKey(uid) {
   try { return JSON.parse(fs.readFileSync(aiKeyFile(uid), 'utf8')).key || null; } catch { return null; }
 }
 
+const stravaFile = uid => path.join(DATA, 'strava-' + uid.replace(/[^a-zA-Z0-9_-]/g, '') + '.json');
+function readStravaConfig(uid) {
+  try { return JSON.parse(fs.readFileSync(stravaFile(uid), 'utf8')); } catch { return null; }
+}
+function writeStravaConfig(uid, config) {
+  atomicWrite(stravaFile(uid), JSON.stringify(config), { mode: 0o600 });
+}
+
 /* ---------- push notifications (Web Push / VAPID) ---------- */
 const vapidFile = path.join(DATA, 'vapid.json');
 let vapid;
@@ -255,6 +263,101 @@ function callAnthropic(apiKey, summary, goals) {
     req.on('timeout', () => { req.destroy(); resolve({ ok: false, error: 'provider error' }) })
     req.end(payload)
   })
+}
+
+/* ---------- Strava OAuth (bring-your-own app) ---------- */
+// Raw HTTPS, no SDK — same reasoning as callAnthropic: api/ has a hard two-dependency limit.
+const STRAVA_HOST = 'www.strava.com';
+
+function stravaTokenRequest(clientId, clientSecret, params) {
+  return new Promise((resolve) => {
+    const payload = new URLSearchParams({ client_id: clientId, client_secret: clientSecret, ...params }).toString();
+    const req = https.request({
+      host: STRAVA_HOST,
+      path: '/oauth/token',
+      method: 'POST',
+      timeout: 30000,
+      headers: { 'content-type': 'application/x-www-form-urlencoded', 'content-length': Buffer.byteLength(payload) },
+    }, res => {
+      let body = '';
+      res.on('data', d => { body += d });
+      res.on('end', () => {
+        if (res.statusCode !== 200) return resolve(null);
+        try {
+          const parsed = JSON.parse(body);
+          resolve({
+            accessToken: parsed.access_token,
+            refreshToken: parsed.refresh_token,
+            expiresAt: parsed.expires_at,
+            athleteId: parsed.athlete?.id,
+          });
+        } catch { resolve(null); }
+      });
+    });
+    // Never log `payload` here — it carries the client secret.
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.end(payload);
+  });
+}
+
+function exchangeStravaCode(clientId, clientSecret, code) {
+  return stravaTokenRequest(clientId, clientSecret, { code, grant_type: 'authorization_code' });
+}
+
+function refreshStravaToken(clientId, clientSecret, refreshToken) {
+  return stravaTokenRequest(clientId, clientSecret, { refresh_token: refreshToken, grant_type: 'refresh_token' });
+}
+
+function isTokenExpired(expiresAt, now = Date.now()) {
+  return !expiresAt || expiresAt <= Math.floor(now / 1000);
+}
+
+function toPlaceholderWorkout(activity, idFn = () => 'sw' + crypto.randomBytes(9).toString('base64url')) {
+  const startMs = new Date(activity.start_date).getTime();
+  const durationMs = (activity.elapsed_time || 0) * 1000;
+  return {
+    id: idFn(), d: activity.start_date.slice(0, 10),
+    start: startMs, end: startMs + durationMs,
+    routineId: null, name: activity.name || 'Strava activity',
+    entries: [], prs: [], vol: 0,
+  };
+}
+
+function filterStrengthActivities(activities) {
+  return (activities || []).filter(a => a.type === 'WeightTraining');
+}
+
+// refreshStravaToken's response has no `athlete` field on a token-refresh call (only the initial
+// authorization exchange includes it), so `fresh.athleteId` comes back undefined here. Filter out
+// undefined fields before spreading so that doesn't clobber the athleteId stored at connect time.
+async function ensureFreshStravaToken(uid, cfg) {
+  if (!isTokenExpired(cfg.expiresAt)) return cfg.accessToken;
+  const fresh = await refreshStravaToken(cfg.clientId, cfg.clientSecret, cfg.refreshToken);
+  if (!fresh) return null;
+  const cleanFresh = Object.fromEntries(Object.entries(fresh).filter(([, v]) => v !== undefined));
+  writeStravaConfig(uid, { ...cfg, ...cleanFresh });
+  return fresh.accessToken;
+}
+
+function fetchStravaActivities(accessToken, afterEpoch) {
+  return new Promise((resolve) => {
+    const path = '/api/v3/athlete/activities?after=' + encodeURIComponent(afterEpoch) + '&per_page=100';
+    const req = https.request({
+      host: STRAVA_HOST, path, method: 'GET', timeout: 30000,
+      headers: { authorization: 'Bearer ' + accessToken },
+    }, res => {
+      let body = '';
+      res.on('data', d => { body += d });
+      res.on('end', () => {
+        if (res.statusCode !== 200) return resolve(null);
+        try { resolve(JSON.parse(body)); } catch { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.end();
+  });
 }
 
 // Rest-timer alerts: client schedules on start/extend, cancels on skip or on-screen completion —
@@ -507,6 +610,12 @@ function makePairCode() {
 }
 setInterval(() => { for (const [k, v] of pairings) if (v.exp < Date.now()) pairings.delete(k); }, 60000).unref();
 
+// OAuth CSRF-state nonces for the Strava connect flow — same shape/lifetime as `challenges`/
+// `pairings` above. Keyed by a random nonce (not the uid) so a leaked/guessed uid can't forge a
+// callback; the nonce is round-tripped through Strava's own redirect as the `state` param.
+const stravaOAuthState = new Map(); // nonce -> {uid, exp}
+setInterval(() => { for (const [k, v] of stravaOAuthState) if (v.exp < Date.now()) stravaOAuthState.delete(k); }, 60000).unref();
+
 /* ---------- helpers ---------- */
 function json(res, code, obj, extraHeaders) {
   const body = JSON.stringify(obj);
@@ -637,6 +746,40 @@ if (AUDIT_ON) {
   setInterval(compactAudit, 3600000).unref();    // honour AUDIT_DAYS on an idle instance too
 }
 
+// Strava sync: every 6 hours, pull new WeightTraining activities for every connected user and
+// append them as placeholder workouts. One user's failure (expired/revoked token, network error)
+// must never stop this loop for anyone else — every per-user step below is wrapped so a thrown
+// error is caught and logged, not propagated.
+setInterval(async () => {
+  for (const user of db.users) {
+    try {
+      const cfg = readStravaConfig(user.id);
+      if (!cfg?.accessToken) continue;
+      const accessToken = await ensureFreshStravaToken(user.id, cfg);
+      if (!accessToken) continue;
+      const activities = await fetchStravaActivities(accessToken, cfg.lastPollAt || Math.floor(Date.now() / 1000));
+      if (activities === null) continue; // fetch failed (bad status/network/timeout/parse) — retry this window next tick
+      const strengthActivities = filterStrengthActivities(activities);
+      let wrote = true;
+      if (strengthActivities.length) {
+        const S = readState(user.id);
+        if (S) {
+          S.workouts = [...(S.workouts || []), ...strengthActivities.map(a => toPlaceholderWorkout(a))];
+          atomicWrite(stateFile(user.id), JSON.stringify(S));
+        } else {
+          wrote = false; // no state file yet — don't advance the cursor, retry these activities next tick
+        }
+      }
+      if (wrote) {
+        const latest = readStravaConfig(user.id) || cfg; // re-read: ensureFreshStravaToken may have updated tokens
+        writeStravaConfig(user.id, { ...latest, lastPollAt: Math.floor(Date.now() / 1000) });
+      }
+    } catch (e) {
+      console.error('strava poll failed for user', user.id, e.message);
+    }
+  }
+}, 21600000).unref();
+
 /* ---------- routes ---------- */
 const routes = {
   'GET /api/health': async (req, res) => json(res, 200, { ok: true, users: db.users.length }),
@@ -671,6 +814,66 @@ const routes = {
     const user = readSession(req);
     if (!user) return json(res, 401, { error: 'not signed in' });
     json(res, 200, { configured: !!readAiKey(user.id) });
+  },
+
+  'POST /api/strava/config': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return json(res, 401, { error: 'not signed in' });
+    const body = await readBody(req);
+    const clientId = String(body.clientId || '').trim();
+    const clientSecret = String(body.clientSecret || '').trim();
+    if (!clientId || !clientSecret) return json(res, 400, { error: 'clientId and clientSecret required' });
+    const existing = readStravaConfig(user.id) || {};
+    writeStravaConfig(user.id, { ...existing, clientId, clientSecret });
+    json(res, 200, { ok: true });
+  },
+
+  'DELETE /api/strava/config': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return json(res, 401, { error: 'not signed in' });
+    try { fs.unlinkSync(stravaFile(user.id)); } catch {}
+    json(res, 200, { ok: true });
+  },
+
+  'GET /api/strava/status': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return json(res, 401, { error: 'not signed in' });
+    const cfg = readStravaConfig(user.id);
+    json(res, 200, { configured: !!(cfg?.clientId && cfg?.clientSecret), connected: !!cfg?.accessToken });
+  },
+
+  'GET /api/strava/authorize': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return json(res, 401, { error: 'not signed in' });
+    const cfg = readStravaConfig(user.id);
+    if (!cfg?.clientId) return json(res, 400, { error: 'no Strava app configured' });
+    const nonce = crypto.randomBytes(16).toString('base64url');
+    stravaOAuthState.set(nonce, { uid: user.id, exp: Date.now() + 5 * 60000 });
+    const authorizeUrl = new URL('https://www.strava.com/oauth/authorize');
+    authorizeUrl.searchParams.set('client_id', cfg.clientId);
+    authorizeUrl.searchParams.set('redirect_uri', ORIGIN + '/api/strava/callback');
+    authorizeUrl.searchParams.set('response_type', 'code');
+    authorizeUrl.searchParams.set('scope', 'activity:read');
+    authorizeUrl.searchParams.set('state', nonce);
+    res.writeHead(302, { Location: authorizeUrl.toString() });
+    res.end();
+  },
+
+  'GET /api/strava/callback': async (req, res) => {
+    const url = new URL(req.url, 'http://x');
+    const code = url.searchParams.get('code');
+    const state = url.searchParams.get('state');
+    const entry = state && stravaOAuthState.get(state);
+    if (entry) stravaOAuthState.delete(state);
+    const fail = () => { res.writeHead(302, { Location: '/settings?strava=error' }); res.end(); };
+    if (!code || !entry || entry.exp < Date.now()) return fail();
+    const cfg = readStravaConfig(entry.uid);
+    if (!cfg?.clientId || !cfg?.clientSecret) return fail();
+    const tokens = await exchangeStravaCode(cfg.clientId, cfg.clientSecret, code);
+    if (!tokens) return fail();
+    writeStravaConfig(entry.uid, { ...cfg, ...tokens, lastPollAt: Math.floor(Date.now() / 1000) });
+    res.writeHead(302, { Location: '/settings?strava=connected' });
+    res.end();
   },
 
   'POST /api/ai/suggest': async (req, res) => {
