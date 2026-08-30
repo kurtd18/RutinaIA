@@ -265,6 +265,50 @@ function callAnthropic(apiKey, summary, goals) {
   })
 }
 
+/* ---------- Strava OAuth (bring-your-own app) ---------- */
+// Raw HTTPS, no SDK — same reasoning as callAnthropic: api/ has a hard two-dependency limit.
+const STRAVA_HOST = 'www.strava.com';
+
+function stravaTokenRequest(clientId, clientSecret, params) {
+  return new Promise((resolve) => {
+    const payload = new URLSearchParams({ client_id: clientId, client_secret: clientSecret, ...params }).toString();
+    const req = https.request({
+      host: STRAVA_HOST,
+      path: '/oauth/token',
+      method: 'POST',
+      timeout: 30000,
+      headers: { 'content-type': 'application/x-www-form-urlencoded', 'content-length': Buffer.byteLength(payload) },
+    }, res => {
+      let body = '';
+      res.on('data', d => { body += d });
+      res.on('end', () => {
+        if (res.statusCode !== 200) return resolve(null);
+        try {
+          const parsed = JSON.parse(body);
+          resolve({
+            accessToken: parsed.access_token,
+            refreshToken: parsed.refresh_token,
+            expiresAt: parsed.expires_at,
+            athleteId: parsed.athlete?.id,
+          });
+        } catch { resolve(null); }
+      });
+    });
+    // Never log `payload` here — it carries the client secret.
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.end(payload);
+  });
+}
+
+function exchangeStravaCode(clientId, clientSecret, code) {
+  return stravaTokenRequest(clientId, clientSecret, { code, grant_type: 'authorization_code' });
+}
+
+function refreshStravaToken(clientId, clientSecret, refreshToken) {
+  return stravaTokenRequest(clientId, clientSecret, { refresh_token: refreshToken, grant_type: 'refresh_token' });
+}
+
 // Rest-timer alerts: client schedules on start/extend, cancels on skip or on-screen completion —
 // this only fires when the tab was backgrounded/suspended and never got to cancel it itself.
 const restTimers = new Map(); // userId -> Timeout
@@ -515,6 +559,12 @@ function makePairCode() {
 }
 setInterval(() => { for (const [k, v] of pairings) if (v.exp < Date.now()) pairings.delete(k); }, 60000).unref();
 
+// OAuth CSRF-state nonces for the Strava connect flow — same shape/lifetime as `challenges`/
+// `pairings` above. Keyed by a random nonce (not the uid) so a leaked/guessed uid can't forge a
+// callback; the nonce is round-tripped through Strava's own redirect as the `state` param.
+const stravaOAuthState = new Map(); // nonce -> {uid, exp}
+setInterval(() => { for (const [k, v] of stravaOAuthState) if (v.exp < Date.now()) stravaOAuthState.delete(k); }, 60000).unref();
+
 /* ---------- helpers ---------- */
 function json(res, code, obj, extraHeaders) {
   const body = JSON.stringify(obj);
@@ -705,6 +755,40 @@ const routes = {
     if (!user) return json(res, 401, { error: 'not signed in' });
     const cfg = readStravaConfig(user.id);
     json(res, 200, { configured: !!(cfg?.clientId && cfg?.clientSecret), connected: !!cfg?.accessToken });
+  },
+
+  'GET /api/strava/authorize': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return json(res, 401, { error: 'not signed in' });
+    const cfg = readStravaConfig(user.id);
+    if (!cfg?.clientId) return json(res, 400, { error: 'no Strava app configured' });
+    const nonce = crypto.randomBytes(16).toString('base64url');
+    stravaOAuthState.set(nonce, { uid: user.id, exp: Date.now() + 5 * 60000 });
+    const authorizeUrl = new URL('https://www.strava.com/oauth/authorize');
+    authorizeUrl.searchParams.set('client_id', cfg.clientId);
+    authorizeUrl.searchParams.set('redirect_uri', ORIGIN + '/api/strava/callback');
+    authorizeUrl.searchParams.set('response_type', 'code');
+    authorizeUrl.searchParams.set('scope', 'activity:read');
+    authorizeUrl.searchParams.set('state', nonce);
+    res.writeHead(302, { Location: authorizeUrl.toString() });
+    res.end();
+  },
+
+  'GET /api/strava/callback': async (req, res) => {
+    const url = new URL(req.url, 'http://x');
+    const code = url.searchParams.get('code');
+    const state = url.searchParams.get('state');
+    const entry = state && stravaOAuthState.get(state);
+    if (entry) stravaOAuthState.delete(state);
+    const fail = () => { res.writeHead(302, { Location: '/settings?strava=error' }); res.end(); };
+    if (!code || !entry || entry.exp < Date.now()) return fail();
+    const cfg = readStravaConfig(entry.uid);
+    if (!cfg?.clientId || !cfg?.clientSecret) return fail();
+    const tokens = await exchangeStravaCode(cfg.clientId, cfg.clientSecret, code);
+    if (!tokens) return fail();
+    writeStravaConfig(entry.uid, { ...cfg, ...tokens, lastPollAt: Math.floor(Date.now() / 1000) });
+    res.writeHead(302, { Location: '/settings?strava=connected' });
+    res.end();
   },
 
   'POST /api/ai/suggest': async (req, res) => {
