@@ -452,7 +452,7 @@ function StravaSyncCard({ toast }) {
   })
 
   return <Section title={t('Strava sync')} footer={t('Uses your own Strava API application — see developers.strava.com. New WeightTraining activities are synced automatically, roughly every 6 hours.')}>
-    {!status.connected && (
+    {!status.configured && (
       <>
         <Row icon="key" iconTint="var(--teal)" title={t('Client ID')}>
           <input type="text" className="input" style={{ maxWidth: 160 }} value={clientId} onChange={e => setClientId(e.target.value)} disabled={busy} />
