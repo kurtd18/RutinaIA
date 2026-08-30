@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseWorkoutCSV, parseGarminCSV, detectSource, parseImport, mergeImport } from './import-csv.js'
+import { parseWorkoutCSV, parseGarminCSV, parseTCX, detectSource, parseImport, mergeImport } from './import-csv.js'
 
 const CSV = [
   'Date,Exercise,Weight,Reps,Set Type',
@@ -153,5 +153,82 @@ describe('mergeImport — Garmin placeholder workouts', () => {
     const second = mergeImport(S, parseGarminCSV(csv))
     expect(second.added).toBe(0)
     expect(S.workouts).toHaveLength(1)
+  })
+})
+
+describe('parseTCX', () => {
+  const tcx = (activities) => `<?xml version="1.0" encoding="UTF-8"?>
+<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
+  <Activities>
+    ${activities}
+  </Activities>
+</TrainingCenterDatabase>`
+
+  it('parses a single activity into one placeholder workout', () => {
+    const xml = tcx(`
+      <Activity Sport="Other">
+        <Id>2026-08-30T18:00:00Z</Id>
+        <Lap StartTime="2026-08-30T18:00:00Z">
+          <TotalTimeSeconds>3600</TotalTimeSeconds>
+        </Lap>
+      </Activity>
+    `)
+    const parsed = parseTCX(xml)
+    expect(parsed.kind).toBe('workouts')
+    expect(parsed.source).toBe('TCX')
+    expect(parsed.workouts).toHaveLength(1)
+    const w = parsed.workouts[0]
+    expect(w.d).toBe('2026-08-30')
+    expect(w.name).toBe('Other')
+    expect(w.entries).toEqual([])
+    expect(w.end - w.start).toBe(3600000)
+  })
+
+  it('merges multiple activities on the same date into one workout, summing lap time', () => {
+    const xml = tcx(`
+      <Activity Sport="Strength Training">
+        <Id>2026-08-30T08:00:00Z</Id>
+        <Lap StartTime="2026-08-30T08:00:00Z"><TotalTimeSeconds>1800</TotalTimeSeconds></Lap>
+      </Activity>
+      <Activity Sport="Running">
+        <Id>2026-08-30T18:00:00Z</Id>
+        <Lap StartTime="2026-08-30T18:00:00Z"><TotalTimeSeconds>1200</TotalTimeSeconds></Lap>
+      </Activity>
+    `)
+    const parsed = parseTCX(xml)
+    expect(parsed.workouts).toHaveLength(1)
+    const w = parsed.workouts[0]
+    expect(w.name).toBe('Strength Training + Running')
+    expect(w.start).toBeLessThan(w.end)
+  })
+
+  it('sums multiple laps within one activity', () => {
+    const xml = tcx(`
+      <Activity Sport="Other">
+        <Id>2026-08-30T08:00:00Z</Id>
+        <Lap StartTime="2026-08-30T08:00:00Z"><TotalTimeSeconds>600</TotalTimeSeconds></Lap>
+        <Lap StartTime="2026-08-30T08:10:00Z"><TotalTimeSeconds>900</TotalTimeSeconds></Lap>
+      </Activity>
+    `)
+    const parsed = parseTCX(xml)
+    expect(parsed.workouts[0].end - parsed.workouts[0].start).toBe(1500000)
+  })
+
+  it('skips an activity with no parseable Id and counts it', () => {
+    const xml = tcx(`
+      <Activity Sport="Other">
+        <Lap StartTime="2026-08-30T08:00:00Z"><TotalTimeSeconds>600</TotalTimeSeconds></Lap>
+      </Activity>
+    `)
+    const parsed = parseTCX(xml)
+    expect(parsed.error).toBe('unrecognised')
+  })
+
+  it('returns an error for a file with no TrainingCenterDatabase marker', () => {
+    expect(parseTCX('<Foo></Foo>').error).toBeTruthy()
+  })
+
+  it('returns an empty-file error for an empty string', () => {
+    expect(parseTCX('').error).toBeTruthy()
   })
 })

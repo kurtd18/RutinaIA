@@ -547,6 +547,68 @@ export function parseGarminCSV(text) {
   }
 }
 
+/**
+ * TCX (Training Center Database XML) — the one activity-export format with genuine cross-vendor
+ * support: Garmin, Fitbit, Polar, and Coros all export it directly, and Suunto activities
+ * interoperate through the same ecosystem. Like Garmin's CSV and Apple Health's export, TCX
+ * carries no structured set/rep/weight data for strength training, so this produces the same
+ * kind of placeholder workout `parseGarminCSV` does — date/name/duration, empty `entries`.
+ *
+ * NOT verified against a real exported file — built from the public TCX schema structure. If you
+ * have a real TCX export, tighten this against it.
+ */
+export function parseTCX(text) {
+  const s = String(text || '')
+  if (!s.trim()) return { error: 'empty' }
+  if (!s.includes('<TrainingCenterDatabase')) return { error: 'unrecognised' }
+
+  const activityRe = /<Activity\b[^>]*Sport="([^"]*)"[^>]*>([\s\S]*?)<\/Activity>/g
+  const byDate = new Map()
+  let skipped = 0
+  let match
+
+  while ((match = activityRe.exec(s))) {
+    const sport = match[1] || 'Other'
+    const body = match[2]
+    const idMatch = /<Id>([^<]+)<\/Id>/.exec(body)
+    if (!idMatch) { skipped++; continue }
+    const when = parseWhen(idMatch[1])
+    if (!when) { skipped++; continue }
+
+    const lapSecondsRe = /<TotalTimeSeconds>([\d.]+)<\/TotalTimeSeconds>/g
+    let totalSeconds = 0
+    let lapMatch
+    while ((lapMatch = lapSecondsRe.exec(body))) totalSeconds += parseFloat(lapMatch[1]) || 0
+
+    const base = new Date(when.d + 'T00:00:00').getTime()
+    const start = base + (when.t ?? 18 * 3600000)
+    const end = totalSeconds > 0 ? start + totalSeconds * 1000 : start
+
+    const existing = byDate.get(when.d)
+    if (!existing) { byDate.set(when.d, { start, end, name: sport }); continue }
+    existing.start = Math.min(existing.start, start)
+    existing.end = Math.max(existing.end, end)
+    if (sport && sport !== existing.name) existing.name = existing.name + ' + ' + sport
+  }
+  if (!byDate.size) return { error: 'unrecognised' }
+
+  const dates = [...byDate.keys()].sort()
+  const workouts = dates.map(d => {
+    const day = byDate.get(d)
+    return {
+      id: 'iw' + uid(), d, start: day.start, end: day.end,
+      routineId: null, name: day.name, entries: [], prs: [], vol: 0,
+    }
+  })
+
+  return {
+    kind: 'workouts', source: 'TCX', workouts, customEx: [],
+    matched: 0, matchedSets: 0, created: 0, unmatchedNames: [],
+    sets: 0, skipped, warmups: 0, fileUnit: '', mixedUnits: false, converted: false,
+    rpeSets: 0, rirSets: 0, from: dates[0] || null, to: dates[dates.length - 1] || null,
+  }
+}
+
 /* ------------------------------------------------------- body weight ------ */
 
 /**
