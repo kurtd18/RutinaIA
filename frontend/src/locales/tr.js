@@ -312,6 +312,8 @@ export default {
   'Push notifications': 'Anlık bildirimler',
   'Rest-timer alerts, even if RutinaIA is closed.': 'RutinaIA kapalıyken bile dinlenme sayacı uyarıları.',
   'Workout day reminder': 'Antrenman günü hatırlatıcısı',
+  'Streak reminder': 'Seri hatırlatıcısı',
+  'Days before reminding': 'Hatırlatmadan önceki gün sayısı',
   'Reminder time': 'Hatırlatma saati',
   "Only sent on days you have a routine planned and haven't logged a workout yet.": 'Sadece rutin planlanmış ve henüz antrenman kaydedilmemiş günlerde gönderilir.',
   'Timezone: {0} (auto-detected, updates if you travel).': 'Saat dilimi: {0} (otomatik algılanır, seyahatte güncellenir).',

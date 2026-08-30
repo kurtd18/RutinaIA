@@ -312,6 +312,8 @@ export default {
   'Push notifications': 'पुश सूचनाएँ',
   'Rest-timer alerts, even if RutinaIA is closed.': 'आराम टाइमर अलर्ट, RutinaIA बंद होने पर भी।',
   'Workout day reminder': 'वर्कआउट दिवस अनुस्मारक',
+  'Streak reminder': 'स्ट्रीक अनुस्मारक',
+  'Days before reminding': 'याद दिलाने से पहले के दिन',
   'Reminder time': 'अनुस्मारक समय',
   "Only sent on days you have a routine planned and haven't logged a workout yet.": 'केवल उन्हीं दिनों भेजा जाता है जब रूटीन तय है और वर्कआउट दर्ज नहीं हुआ।',
   'Timezone: {0} (auto-detected, updates if you travel).': 'समय क्षेत्र: {0} (स्वतः पहचाना गया, यात्रा पर अपडेट होता है)।',

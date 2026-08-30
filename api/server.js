@@ -317,17 +317,22 @@ setInterval(() => {
       }
     }
 
+    // Exact match, not >=: this fires the streak reminder exactly once per streak break; see
+    // api/streak-reminder.js's shouldFireStreakReminder for why >= would cause daily re-firing.
+    // A missed tick (e.g. a redeploy during the matching minute) is a known, accepted limitation
+    // of this design.
     if (S.reminder.streakOn && S.reminder.time === now.hhmm) {
+      const streakDays = Math.max(1, Math.min(30, Number(S.reminder.streakDays) || 3));
       const lw = lastWorkoutDate(S.workouts);
       if (shouldFireStreakReminder({
         lastWorkout: lw, today: now.date,
-        streakDays: S.reminder.streakDays || 3,
+        streakDays,
         alreadyFiredToday: user.lastStreakReminder === now.date,
       })) {
         console.log('streak reminder firing', user.id);
         user.lastStreakReminder = now.date;
         saveDb();
-        sendPush(user.id, streakReminderPush(S.lang, S.reminder.streakDays || 3));
+        sendPush(user.id, streakReminderPush(S.lang, streakDays));
       }
     }
   }
