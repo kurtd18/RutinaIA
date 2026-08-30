@@ -39,6 +39,21 @@ export async function suggestRoutine(summary, goals) {
   return api('/api/ai/suggest', { method: 'POST', body: JSON.stringify({ summary, goals }) })
 }
 
+// Strava sync (Settings): app credentials + connect status. getStravaStatus returns the whole
+// { configured, connected } object — unlike getAiStatus, the card needs both flags.
+export async function getStravaStatus() {
+  return api('/api/strava/status')
+}
+export async function saveStravaConfig(clientId, clientSecret) {
+  return api('/api/strava/config', { method: 'POST', body: JSON.stringify({ clientId, clientSecret }) })
+}
+export async function deleteStravaConfig() {
+  return api('/api/strava/config', { method: 'DELETE' })
+}
+export function stravaAuthorizeUrl() {
+  return '/api/strava/authorize'
+}
+
 // Bootstraps the connection itself: the base isn't configured yet (that's what this call decides),
 // so it talks straight to the server the user typed in, no Authorization header.
 export async function pairRedeem(serverBase, code) {

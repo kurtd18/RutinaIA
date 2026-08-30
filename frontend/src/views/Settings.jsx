@@ -4,7 +4,7 @@ import { useStore, DEF, hasData } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { ACCENTS, todayISO, localTZ } from '../lib/format.js'
 import { effortOf } from '../lib/history.js'
-import { api, webauthnOK, passkeyLogin, passkeyRegister, IS_ANDROID, getAiStatus, saveAiKey, deleteAiKey } from '../lib/api.js'
+import { api, webauthnOK, passkeyLogin, passkeyRegister, IS_ANDROID, getAiStatus, saveAiKey, deleteAiKey, getStravaStatus, saveStravaConfig, deleteStravaConfig, stravaAuthorizeUrl } from '../lib/api.js'
 import { pushSupported, enablePush, disablePush, sendTestPush } from '../lib/push.js'
 import { wakeLockSupported } from '../lib/wakelock.js'
 import { t, LANGS, INSTR_LANGS } from '../lib/i18n.js'
@@ -162,6 +162,7 @@ export default function Settings() {
 
     {/* AI needs a place to store the user's own Anthropic key server-side, so this is signed-in-only */}
     {user && <AiSuggestCard toast={toast} />}
+    {user && <StravaSyncCard toast={toast} />}
 
     {/* ---------- equipment ---------- */}
     <EquipmentCard S={S} update={update} />
@@ -416,6 +417,61 @@ function AiSuggestCard({ toast }) {
     )}
     {configured && (
       <Row icon="sparkles" iconTint="var(--acc)" title={t('Suggest a routine')} accessory="chevron" onClick={aiSuggestSheet} />
+    )}
+  </Section>
+}
+
+// Strava sync: user's own Strava API app credentials, then an OAuth connect flow. Mirrors
+// AiSuggestCard's shape (status fetch on mount, masked-input save row, status-driven rows).
+function StravaSyncCard({ toast }) {
+  const [status, setStatus] = useState({ configured: false, connected: false })
+  const [clientId, setClientId] = useState('')
+  const [clientSecret, setClientSecret] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => { getStravaStatus().then(setStatus).catch(() => {}) }, [])
+
+  const save = async () => {
+    const id = clientId.trim(), secret = clientSecret.trim()
+    if (!id || !secret) { toast(t('Enter a client ID and secret')); return }
+    setBusy(true)
+    try {
+      await saveStravaConfig(id, secret)
+      setClientId(''); setClientSecret('')
+      setStatus(await getStravaStatus())
+      toast(t('Strava app saved'))
+    } catch (e) { toast(e.message || t('Could not save the Strava app')) }
+    setBusy(false)
+  }
+  const disconnect = () => confirmSheet({
+    title: t('Disconnect Strava?'), message: t('You can reconnect anytime.'), confirmText: t('Disconnect'), danger: true,
+    onConfirm: async () => {
+      try { await deleteStravaConfig(); setStatus({ configured: false, connected: false }); toast(t('Strava disconnected')) }
+      catch (e) { toast(e.message || t('Could not disconnect')) }
+    },
+  })
+
+  return <Section title={t('Strava sync')} footer={t('Uses your own Strava API application — see developers.strava.com. New WeightTraining activities are synced automatically, roughly every 6 hours.')}>
+    {!status.connected && (
+      <>
+        <Row icon="key" iconTint="var(--teal)" title={t('Client ID')}>
+          <input type="text" className="input" style={{ maxWidth: 160 }} value={clientId} onChange={e => setClientId(e.target.value)} disabled={busy} />
+        </Row>
+        <Row icon="key" iconTint="var(--teal)" title={t('Client Secret')}>
+          <input type="password" className="input" style={{ maxWidth: 160 }} value={clientSecret} onChange={e => setClientSecret(e.target.value)} disabled={busy} />
+        </Row>
+        <Row icon="checkCircle" iconTint="var(--acc)" title={t('Save Strava app')} accessory="chevron" onClick={save} />
+      </>
+    )}
+    {status.configured && !status.connected && (
+      <Row icon="link" iconTint="var(--acc)" title={t('Connect with Strava')} accessory="chevron"
+        onClick={() => { window.location.href = stravaAuthorizeUrl() }} />
+    )}
+    {status.connected && (
+      <>
+        <Row icon="checkCircle" iconTint="var(--teal)" title={t('Connected to Strava')} />
+        <Row icon="signOut" iconTint="var(--red)" title={t('Disconnect')} danger onClick={disconnect} />
+      </>
     )}
   </Section>
 }
