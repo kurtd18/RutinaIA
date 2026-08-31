@@ -672,7 +672,15 @@ export function parseBodyweight(text, { unit = 'kg' } = {}) {
 /** Sniff the file and parse it as whatever it is. */
 export function parseImport(text, opts) {
   const s = String(text)
-  if (s.includes('HKQuantityTypeIdentifier') || /^\s*</.test(s)) return parseBodyweight(s, opts)
+  if (s.includes('HKQuantityTypeIdentifier')) return parseBodyweight(s, opts)
+  if (s.includes('<TrainingCenterDatabase')) return parseTCX(s)
+  if (/^\s*</.test(s)) {
+    const asWeights = parseBodyweight(s, opts)
+    if (!asWeights.error) return asWeights
+    // fall through — an XML file that's neither Apple Health nor TCX still gets a shot at the
+    // CSV/Garmin paths below rather than failing immediately, matching this function's existing
+    // "try every format before giving up" posture.
+  }
   const asWorkouts = parseWorkoutCSV(s, opts)
   if (!asWorkouts.error) return asWorkouts
   const asWeights = parseBodyweight(s, opts)
