@@ -271,3 +271,16 @@ describe('parseImport — TCX and XML dispatch', () => {
     // matters structurally even though the observable error outcome is the same.
   })
 })
+
+describe('mapHeader — Samsung Health column names', () => {
+  it('recognises Samsung Health-style activity-summary headers as a Garmin-shaped import', () => {
+    const csv = [
+      'start_time,exercise_type,duration',
+      '2026-08-30 18:00:00,Weight Training,3600',
+    ].join('\n')
+    const parsed = parseImport(csv)
+    expect(parsed.error).toBeUndefined()
+    expect(parsed.workouts).toHaveLength(1)
+    expect(parsed.workouts[0].name).toBe('Weight Training')
+  })
+})

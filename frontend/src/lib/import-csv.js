@@ -57,11 +57,17 @@ const norm = h => h.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 // header text -> the field we care about. Specific names first; first match wins.
 const COLUMNS = [
   ['exercise', ['exercise', 'exercise name', 'exercise title']],
-  ['date', ['date', 'workout date']],
-  ['startTime', ['start time', 'start date']],
+  // 'start time' is also how Hevy and Strong write their start-of-workout timestamp
+  // (Hevy's start_time normalizes the same way), and it doubles as the only date-bearing
+  // column in Samsung Health's activity-summary export — claiming it here rather than in
+  // startTime is safe because every consumer already treats date/startTime as
+  // interchangeable fallbacks (parseWorkoutCSV's dateCol, parseBodyweight's dCol), but
+  // parseGarminCSV requires `date` specifically, so Samsung's export needs it to land here.
+  ['date', ['date', 'workout date', 'start time']],
+  ['startTime', ['start date']],
   ['endTime', ['end time']],
   ['workoutName', ['workout name', 'title', 'workout', 'activity name']],
-  ['activityType', ['activity type', 'type']],
+  ['activityType', ['activity type', 'type', 'exercise type']],
   ['category', ['category', 'body part', 'muscle group']],
   ['weightKg', ['weight kg']],
   ['weightLb', ['weight lbs', 'weight lb']],
