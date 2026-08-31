@@ -57,11 +57,17 @@ const norm = h => h.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 // header text -> the field we care about. Specific names first; first match wins.
 const COLUMNS = [
   ['exercise', ['exercise', 'exercise name', 'exercise title']],
-  ['date', ['date', 'workout date']],
-  ['startTime', ['start time', 'start date']],
+  // 'start time' is also how Hevy and Strong write their start-of-workout timestamp
+  // (Hevy's start_time normalizes the same way), and it doubles as the only date-bearing
+  // column in Samsung Health's activity-summary export — claiming it here rather than in
+  // startTime is safe because every consumer already treats date/startTime as
+  // interchangeable fallbacks (parseWorkoutCSV's dateCol, parseBodyweight's dCol), but
+  // parseGarminCSV requires `date` specifically, so Samsung's export needs it to land here.
+  ['date', ['date', 'workout date', 'start time']],
+  ['startTime', ['start date']],
   ['endTime', ['end time']],
   ['workoutName', ['workout name', 'title', 'workout', 'activity name']],
-  ['activityType', ['activity type', 'type']],
+  ['activityType', ['activity type', 'type', 'exercise type']],
   ['category', ['category', 'body part', 'muscle group']],
   ['weightKg', ['weight kg']],
   ['weightLb', ['weight lbs', 'weight lb']],
@@ -547,6 +553,68 @@ export function parseGarminCSV(text) {
   }
 }
 
+/**
+ * TCX (Training Center Database XML) — the one activity-export format with genuine cross-vendor
+ * support: Garmin, Fitbit, Polar, and Coros all export it directly, and Suunto activities
+ * interoperate through the same ecosystem. Like Garmin's CSV and Apple Health's export, TCX
+ * carries no structured set/rep/weight data for strength training, so this produces the same
+ * kind of placeholder workout `parseGarminCSV` does — date/name/duration, empty `entries`.
+ *
+ * NOT verified against a real exported file — built from the public TCX schema structure. If you
+ * have a real TCX export, tighten this against it.
+ */
+export function parseTCX(text) {
+  const s = String(text || '')
+  if (!s.trim()) return { error: 'empty' }
+  if (!s.includes('<TrainingCenterDatabase')) return { error: 'unrecognised' }
+
+  const activityRe = /<Activity\b[^>]*Sport="([^"]*)"[^>]*>([\s\S]*?)<\/Activity>/g
+  const byDate = new Map()
+  let skipped = 0
+  let match
+
+  while ((match = activityRe.exec(s))) {
+    const sport = match[1] || 'Other'
+    const body = match[2]
+    const idMatch = /<Id>([^<]+)<\/Id>/.exec(body)
+    if (!idMatch) { skipped++; continue }
+    const when = parseWhen(idMatch[1])
+    if (!when) { skipped++; continue }
+
+    const lapSecondsRe = /<TotalTimeSeconds>([\d.]+)<\/TotalTimeSeconds>/g
+    let totalSeconds = 0
+    let lapMatch
+    while ((lapMatch = lapSecondsRe.exec(body))) totalSeconds += parseFloat(lapMatch[1]) || 0
+
+    const base = new Date(when.d + 'T00:00:00').getTime()
+    const start = base + (when.t ?? 18 * 3600000)
+    const end = totalSeconds > 0 ? start + totalSeconds * 1000 : start
+
+    const existing = byDate.get(when.d)
+    if (!existing) { byDate.set(when.d, { start, end, name: sport }); continue }
+    existing.start = Math.min(existing.start, start)
+    existing.end = Math.max(existing.end, end)
+    if (sport && sport !== existing.name) existing.name = existing.name + ' + ' + sport
+  }
+  if (!byDate.size) return { error: 'unrecognised' }
+
+  const dates = [...byDate.keys()].sort()
+  const workouts = dates.map(d => {
+    const day = byDate.get(d)
+    return {
+      id: 'iw' + uid(), d, start: day.start, end: day.end,
+      routineId: null, name: day.name, entries: [], prs: [], vol: 0,
+    }
+  })
+
+  return {
+    kind: 'workouts', source: 'TCX', workouts, customEx: [],
+    matched: 0, matchedSets: 0, created: 0, unmatchedNames: [],
+    sets: 0, skipped, warmups: 0, fileUnit: '', mixedUnits: false, converted: false,
+    rpeSets: 0, rirSets: 0, from: dates[0] || null, to: dates[dates.length - 1] || null,
+  }
+}
+
 /* ------------------------------------------------------- body weight ------ */
 
 /**
@@ -610,7 +678,15 @@ export function parseBodyweight(text, { unit = 'kg' } = {}) {
 /** Sniff the file and parse it as whatever it is. */
 export function parseImport(text, opts) {
   const s = String(text)
-  if (s.includes('HKQuantityTypeIdentifier') || /^\s*</.test(s)) return parseBodyweight(s, opts)
+  if (s.includes('HKQuantityTypeIdentifier')) return parseBodyweight(s, opts)
+  if (s.includes('<TrainingCenterDatabase')) return parseTCX(s)
+  if (/^\s*</.test(s)) {
+    const asWeights = parseBodyweight(s, opts)
+    if (!asWeights.error) return asWeights
+    // fall through — an XML file that's neither Apple Health nor TCX still gets a shot at the
+    // CSV/Garmin paths below rather than failing immediately, matching this function's existing
+    // "try every format before giving up" posture.
+  }
   const asWorkouts = parseWorkoutCSV(s, opts)
   if (!asWorkouts.error) return asWorkouts
   const asWeights = parseBodyweight(s, opts)
@@ -621,7 +697,20 @@ export function parseImport(text, opts) {
 
 /* --------------------------------------------------------------- merge ---- */
 
-/** Merge into state. Existing days win — importing twice never duplicates a workout. */
+// Two workouts are "the same import" if they're on the same date and their start times are
+// within DEDUP_TOLERANCE_MS of each other — not just "any workout exists that day". This lets a
+// second source's genuinely different same-day workout coexist, while re-importing the same file
+// twice still recognizes its own rows as duplicates (different export formats can round start
+// times to the minute vs. the second, hence a tolerance rather than an exact match).
+const DEDUP_TOLERANCE_MS = 5 * 60000 // 5 minutes
+
+function isDuplicateWorkout(existing, incoming) {
+  return existing.some(w => w.d === incoming.d && Math.abs((w.start || 0) - (incoming.start || 0)) <= DEDUP_TOLERANCE_MS)
+}
+
+/** Merge into state. A workout is a duplicate only if an existing one shares its date AND starts
+ *  within DEDUP_TOLERANCE_MS — re-importing the same file never duplicates a workout, but a
+ *  different source's genuinely different same-day workout is kept. */
 export function mergeImport(S, parsed) {
   if (parsed.kind === 'bodyweight') {
     const have = new Set(S.bodyweight.map(b => b.d))
@@ -629,8 +718,7 @@ export function mergeImport(S, parsed) {
     S.bodyweight = [...S.bodyweight, ...fresh].sort((a, b) => (a.d < b.d ? -1 : 1))
     return { added: fresh.length, skipped: parsed.bodyweight.length - fresh.length }
   }
-  const have = new Set(S.workouts.map(w => w.d))
-  const fresh = parsed.workouts.filter(w => !have.has(w.d))
+  const fresh = parsed.workouts.filter(w => !isDuplicateWorkout(S.workouts, w))
   const used = new Set(fresh.flatMap(w => w.entries.map(e => e.id)))
   const customs = parsed.customEx.filter(c => used.has(c.id) && !EXIDX[c.id])
   S.customEx = [...(S.customEx || []), ...customs]

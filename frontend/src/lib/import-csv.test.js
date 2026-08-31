@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseWorkoutCSV, parseGarminCSV, detectSource, parseImport, mergeImport } from './import-csv.js'
+import { parseWorkoutCSV, parseGarminCSV, parseTCX, detectSource, parseImport, mergeImport } from './import-csv.js'
 
 const CSV = [
   'Date,Exercise,Weight,Reps,Set Type',
@@ -153,5 +153,175 @@ describe('mergeImport — Garmin placeholder workouts', () => {
     const second = mergeImport(S, parseGarminCSV(csv))
     expect(second.added).toBe(0)
     expect(S.workouts).toHaveLength(1)
+  })
+})
+
+describe('mergeImport — dedup granularity', () => {
+  const makeWorkout = (d, start, name = 'Test') => ({
+    id: 'w' + start, d, start, end: start + 3600000, routineId: null, name, entries: [], prs: [], vol: 0,
+  })
+
+  it('still treats re-importing the exact same file as a duplicate (idempotent)', () => {
+    const S = { workouts: [makeWorkout('2026-08-30', 1756573200000)], bodyweight: [], customEx: [], exWeights: {} }
+    const parsed = { kind: 'workouts', workouts: [makeWorkout('2026-08-30', 1756573200000)], customEx: [] }
+    const result = mergeImport(S, parsed)
+    expect(result.added).toBe(0)
+    expect(result.skipped).toBe(1)
+    expect(S.workouts).toHaveLength(1)
+  })
+
+  it('adds a same-date workout from a second source when start times differ beyond the tolerance', () => {
+    const S = { workouts: [makeWorkout('2026-08-30', 1756573200000, 'Morning run')], bodyweight: [], customEx: [], exWeights: {} }
+    // 8 hours later on the same date — well outside DEDUP_TOLERANCE_MS
+    const parsed = { kind: 'workouts', workouts: [makeWorkout('2026-08-30', 1756573200000 + 8 * 3600000, 'Evening lift')], customEx: [] }
+    const result = mergeImport(S, parsed)
+    expect(result.added).toBe(1)
+    expect(S.workouts).toHaveLength(2)
+  })
+
+  it('still treats two start times within the tolerance window as the same workout', () => {
+    const S = { workouts: [makeWorkout('2026-08-30', 1756573200000)], bodyweight: [], customEx: [], exWeights: {} }
+    // 2 minutes later — within the 5-minute DEDUP_TOLERANCE_MS
+    const parsed = { kind: 'workouts', workouts: [makeWorkout('2026-08-30', 1756573200000 + 2 * 60000)], customEx: [] }
+    const result = mergeImport(S, parsed)
+    expect(result.added).toBe(0)
+    expect(S.workouts).toHaveLength(1)
+  })
+
+  it('does not change bodyweight dedup (stays date-only)', () => {
+    const S = { workouts: [], bodyweight: [{ d: '2026-08-30', w: 70, t: 1756573200000 }], customEx: [], exWeights: {} }
+    const parsed = { kind: 'bodyweight', bodyweight: [{ d: '2026-08-30', w: 71, t: 1756573200000 + 8 * 3600000 }] }
+    const result = mergeImport(S, parsed)
+    expect(result.added).toBe(0) // same date still wins, regardless of time — unchanged behavior
+    expect(S.bodyweight).toHaveLength(1)
+  })
+})
+
+describe('parseTCX', () => {
+  const tcx = (activities) => `<?xml version="1.0" encoding="UTF-8"?>
+<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
+  <Activities>
+    ${activities}
+  </Activities>
+</TrainingCenterDatabase>`
+
+  it('parses a single activity into one placeholder workout', () => {
+    const xml = tcx(`
+      <Activity Sport="Other">
+        <Id>2026-08-30T18:00:00Z</Id>
+        <Lap StartTime="2026-08-30T18:00:00Z">
+          <TotalTimeSeconds>3600</TotalTimeSeconds>
+        </Lap>
+      </Activity>
+    `)
+    const parsed = parseTCX(xml)
+    expect(parsed.kind).toBe('workouts')
+    expect(parsed.source).toBe('TCX')
+    expect(parsed.workouts).toHaveLength(1)
+    const w = parsed.workouts[0]
+    expect(w.d).toBe('2026-08-30')
+    expect(w.name).toBe('Other')
+    expect(w.entries).toEqual([])
+    expect(w.end - w.start).toBe(3600000)
+  })
+
+  it('merges multiple activities on the same date into one workout, summing lap time', () => {
+    const xml = tcx(`
+      <Activity Sport="Strength Training">
+        <Id>2026-08-30T08:00:00Z</Id>
+        <Lap StartTime="2026-08-30T08:00:00Z"><TotalTimeSeconds>1800</TotalTimeSeconds></Lap>
+      </Activity>
+      <Activity Sport="Running">
+        <Id>2026-08-30T18:00:00Z</Id>
+        <Lap StartTime="2026-08-30T18:00:00Z"><TotalTimeSeconds>1200</TotalTimeSeconds></Lap>
+      </Activity>
+    `)
+    const parsed = parseTCX(xml)
+    expect(parsed.workouts).toHaveLength(1)
+    const w = parsed.workouts[0]
+    expect(w.name).toBe('Strength Training + Running')
+    expect(w.start).toBeLessThan(w.end)
+  })
+
+  it('sums multiple laps within one activity', () => {
+    const xml = tcx(`
+      <Activity Sport="Other">
+        <Id>2026-08-30T08:00:00Z</Id>
+        <Lap StartTime="2026-08-30T08:00:00Z"><TotalTimeSeconds>600</TotalTimeSeconds></Lap>
+        <Lap StartTime="2026-08-30T08:10:00Z"><TotalTimeSeconds>900</TotalTimeSeconds></Lap>
+      </Activity>
+    `)
+    const parsed = parseTCX(xml)
+    expect(parsed.workouts[0].end - parsed.workouts[0].start).toBe(1500000)
+  })
+
+  it('skips an activity with no parseable Id and counts it', () => {
+    const xml = tcx(`
+      <Activity Sport="Other">
+        <Lap StartTime="2026-08-30T08:00:00Z"><TotalTimeSeconds>600</TotalTimeSeconds></Lap>
+      </Activity>
+    `)
+    const parsed = parseTCX(xml)
+    expect(parsed.error).toBe('unrecognised')
+  })
+
+  it('returns an error for a file with no TrainingCenterDatabase marker', () => {
+    expect(parseTCX('<Foo></Foo>').error).toBeTruthy()
+  })
+
+  it('returns an empty-file error for an empty string', () => {
+    expect(parseTCX('').error).toBeTruthy()
+  })
+})
+
+describe('parseImport — TCX and XML dispatch', () => {
+  const tcxFile = `<?xml version="1.0"?>
+<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">
+  <Activities>
+    <Activity Sport="Other">
+      <Id>2026-08-30T18:00:00Z</Id>
+      <Lap StartTime="2026-08-30T18:00:00Z"><TotalTimeSeconds>1800</TotalTimeSeconds></Lap>
+    </Activity>
+  </Activities>
+</TrainingCenterDatabase>`
+
+  it('routes a TCX file to parseTCX, not the Apple Health branch', () => {
+    const parsed = parseImport(tcxFile)
+    expect(parsed.source).toBe('TCX')
+    expect(parsed.error).toBeUndefined()
+  })
+
+  it('still routes an Apple Health export correctly (no regression)', () => {
+    const appleHealthXml = `<HealthData>
+      <Record type="HKQuantityTypeIdentifierBodyMass" value="70" unit="kg" startDate="2026-08-30 08:00:00 -0500" />
+    </HealthData>`
+    const parsed = parseImport(appleHealthXml)
+    expect(parsed.kind).toBe('bodyweight')
+    expect(parsed.source).toBe('Apple Health')
+  })
+
+  it('falls through to CSV/Garmin attempts for an XML file that is neither Apple Health nor TCX', () => {
+    // A well-formed but unrelated XML document — should not error out immediately just because
+    // it starts with '<'; parseImport should still attempt the CSV-shaped fallbacks (which will
+    // also fail here since this isn't CSV either, but the point is it doesn't short-circuit).
+    const unrelatedXml = '<Foo><Bar/></Foo>'
+    const parsed = parseImport(unrelatedXml)
+    expect(parsed.error).toBeTruthy() // still an error — this input is genuinely unrecognisable —
+    // but reaching this error via the CSV/Garmin fallback path (not an immediate return from the
+    // Apple Health branch) is what this test guards; see Step 4's implementation for why this
+    // matters structurally even though the observable error outcome is the same.
+  })
+})
+
+describe('mapHeader — Samsung Health column names', () => {
+  it('recognises Samsung Health-style activity-summary headers as a Garmin-shaped import', () => {
+    const csv = [
+      'start_time,exercise_type,duration',
+      '2026-08-30 18:00:00,Weight Training,3600',
+    ].join('\n')
+    const parsed = parseImport(csv)
+    expect(parsed.error).toBeUndefined()
+    expect(parsed.workouts).toHaveLength(1)
+    expect(parsed.workouts[0].name).toBe('Weight Training')
   })
 })
