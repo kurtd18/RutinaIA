@@ -156,6 +156,47 @@ describe('mergeImport — Garmin placeholder workouts', () => {
   })
 })
 
+describe('mergeImport — dedup granularity', () => {
+  const makeWorkout = (d, start, name = 'Test') => ({
+    id: 'w' + start, d, start, end: start + 3600000, routineId: null, name, entries: [], prs: [], vol: 0,
+  })
+
+  it('still treats re-importing the exact same file as a duplicate (idempotent)', () => {
+    const S = { workouts: [makeWorkout('2026-08-30', 1756573200000)], bodyweight: [], customEx: [], exWeights: {} }
+    const parsed = { kind: 'workouts', workouts: [makeWorkout('2026-08-30', 1756573200000)], customEx: [] }
+    const result = mergeImport(S, parsed)
+    expect(result.added).toBe(0)
+    expect(result.skipped).toBe(1)
+    expect(S.workouts).toHaveLength(1)
+  })
+
+  it('adds a same-date workout from a second source when start times differ beyond the tolerance', () => {
+    const S = { workouts: [makeWorkout('2026-08-30', 1756573200000, 'Morning run')], bodyweight: [], customEx: [], exWeights: {} }
+    // 8 hours later on the same date — well outside DEDUP_TOLERANCE_MS
+    const parsed = { kind: 'workouts', workouts: [makeWorkout('2026-08-30', 1756573200000 + 8 * 3600000, 'Evening lift')], customEx: [] }
+    const result = mergeImport(S, parsed)
+    expect(result.added).toBe(1)
+    expect(S.workouts).toHaveLength(2)
+  })
+
+  it('still treats two start times within the tolerance window as the same workout', () => {
+    const S = { workouts: [makeWorkout('2026-08-30', 1756573200000)], bodyweight: [], customEx: [], exWeights: {} }
+    // 2 minutes later — within the 5-minute DEDUP_TOLERANCE_MS
+    const parsed = { kind: 'workouts', workouts: [makeWorkout('2026-08-30', 1756573200000 + 2 * 60000)], customEx: [] }
+    const result = mergeImport(S, parsed)
+    expect(result.added).toBe(0)
+    expect(S.workouts).toHaveLength(1)
+  })
+
+  it('does not change bodyweight dedup (stays date-only)', () => {
+    const S = { workouts: [], bodyweight: [{ d: '2026-08-30', w: 70, t: 1756573200000 }], customEx: [], exWeights: {} }
+    const parsed = { kind: 'bodyweight', bodyweight: [{ d: '2026-08-30', w: 71, t: 1756573200000 + 8 * 3600000 }] }
+    const result = mergeImport(S, parsed)
+    expect(result.added).toBe(0) // same date still wins, regardless of time — unchanged behavior
+    expect(S.bodyweight).toHaveLength(1)
+  })
+})
+
 describe('parseTCX', () => {
   const tcx = (activities) => `<?xml version="1.0" encoding="UTF-8"?>
 <TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">

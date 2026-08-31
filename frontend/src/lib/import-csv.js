@@ -697,7 +697,20 @@ export function parseImport(text, opts) {
 
 /* --------------------------------------------------------------- merge ---- */
 
-/** Merge into state. Existing days win — importing twice never duplicates a workout. */
+// Two workouts are "the same import" if they're on the same date and their start times are
+// within DEDUP_TOLERANCE_MS of each other — not just "any workout exists that day". This lets a
+// second source's genuinely different same-day workout coexist, while re-importing the same file
+// twice still recognizes its own rows as duplicates (different export formats can round start
+// times to the minute vs. the second, hence a tolerance rather than an exact match).
+const DEDUP_TOLERANCE_MS = 5 * 60000 // 5 minutes
+
+function isDuplicateWorkout(existing, incoming) {
+  return existing.some(w => w.d === incoming.d && Math.abs((w.start || 0) - (incoming.start || 0)) <= DEDUP_TOLERANCE_MS)
+}
+
+/** Merge into state. A workout is a duplicate only if an existing one shares its date AND starts
+ *  within DEDUP_TOLERANCE_MS — re-importing the same file never duplicates a workout, but a
+ *  different source's genuinely different same-day workout is kept. */
 export function mergeImport(S, parsed) {
   if (parsed.kind === 'bodyweight') {
     const have = new Set(S.bodyweight.map(b => b.d))
@@ -705,8 +718,7 @@ export function mergeImport(S, parsed) {
     S.bodyweight = [...S.bodyweight, ...fresh].sort((a, b) => (a.d < b.d ? -1 : 1))
     return { added: fresh.length, skipped: parsed.bodyweight.length - fresh.length }
   }
-  const have = new Set(S.workouts.map(w => w.d))
-  const fresh = parsed.workouts.filter(w => !have.has(w.d))
+  const fresh = parsed.workouts.filter(w => !isDuplicateWorkout(S.workouts, w))
   const used = new Set(fresh.flatMap(w => w.entries.map(e => e.id)))
   const customs = parsed.customEx.filter(c => used.has(c.id) && !EXIDX[c.id])
   S.customEx = [...(S.customEx || []), ...customs]
