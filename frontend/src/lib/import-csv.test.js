@@ -324,4 +324,14 @@ describe('mapHeader — Samsung Health column names', () => {
     expect(parsed.workouts).toHaveLength(1)
     expect(parsed.workouts[0].name).toBe('Weight Training')
   })
+
+  it('does not mislabel a Samsung Health import as Garmin in the confirmation summary', () => {
+    const csv = [
+      'start_time,exercise_type,duration',
+      '2026-08-30 18:00:00,Weight Training,3600',
+    ].join('\n')
+    const parsed = parseImport(csv)
+    expect(parsed.source).not.toBe('Garmin')
+    expect(parsed.source).toBe('Activity summary')
+  })
 })

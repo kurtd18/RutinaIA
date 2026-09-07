@@ -546,7 +546,10 @@ export function parseGarminCSV(text) {
   })
 
   return {
-    kind: 'workouts', source: 'Garmin', workouts, customEx: [],
+    // This path also now catches Samsung Health-style headers (see mapHeader's COLUMNS) —
+    // derive the label instead of hardcoding 'Garmin' so those imports aren't mislabeled in
+    // the confirmation summary the user sanity-checks before committing.
+    kind: 'workouts', source: detectSource(rows[0]) || 'Activity summary', workouts, customEx: [],
     matched: 0, matchedSets: 0, created: 0, unmatchedNames: [],
     sets: 0, skipped, warmups: 0, fileUnit: '', mixedUnits: false, converted: false,
     rpeSets: 0, rirSets: 0, from: dates[0] || null, to: dates[dates.length - 1] || null,
