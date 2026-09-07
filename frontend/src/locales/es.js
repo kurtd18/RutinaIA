@@ -675,5 +675,60 @@ export default {
   'Add session note': 'Añadir nota de la sesión',
   'Edit session note': 'Editar nota de la sesión',
   'How the session went as a whole.': 'Cómo fue la sesión en conjunto.',
-  'Rest-pause always trains as one warm-up set at this rep count, then one rest-pause work set — "Sets" is not used.': 'Rest-pause siempre entrena como una serie de calentamiento con estas reps y una serie de trabajo rest-pause — «Series» no se usa.'
+  'Rest-pause always trains as one warm-up set at this rep count, then one rest-pause work set — "Sets" is not used.': 'Rest-pause siempre entrena como una serie de calentamiento con estas reps y una serie de trabajo rest-pause — «Series» no se usa.',
+
+  // --- demo mode ---
+  'Demo': 'Demo',
+  'You’re in the demo': 'Estás en la demo',
+  'Example data, stored only in this browser — change anything you like.': 'Datos de ejemplo, guardados solo en este navegador — cambia lo que quieras.',
+  'Reset demo data?': '¿Reiniciar los datos de la demo?',
+  'Puts the example plan, workouts and weigh-ins back the way they started.': 'Vuelve a dejar el plan, los entrenamientos y los pesajes de ejemplo como estaban al principio.',
+  'Reset': 'Reiniciar',
+  'Demo data reset': 'Datos de la demo reiniciados',
+  'Self-host RutinaIA': 'Auto-hospeda RutinaIA',
+  'Passkey sign-in, sync across your devices, your own data.': 'Inicio de sesión con passkey, sincronización entre tus dispositivos, tus propios datos.',
+
+  // --- AI routine suggestion (Phase 3) ---
+  'AI routine suggestion': 'Sugerencia de rutina con IA',
+  'Anthropic': 'Anthropic',
+  'Anthropic API key': 'Clave de API de Anthropic',
+  'Uses your own Anthropic API key — never shared, stored only on your server.': 'Usa tu propia clave de API de Anthropic — nunca se comparte, se guarda solo en tu servidor.',
+  'Enter an API key': 'Ingresa una clave de API',
+  'API key saved': 'Clave de API guardada',
+  'Could not save the key': 'No se pudo guardar la clave',
+  'Remove API key?': '¿Eliminar la clave de API?',
+  'You can add it again anytime.': 'Puedes agregarla de nuevo cuando quieras.',
+  'API key removed': 'Clave de API eliminada',
+  'Could not remove the key': 'No se pudo eliminar la clave',
+  'Suggest a routine': 'Sugerir una rutina',
+  'Add this routine': 'Agregar esta rutina',
+  'Routine added: {0}': 'Rutina agregada: {0}',
+  'Suggested by AI — review before adding it to your plan.': 'Sugerida por IA — revísala antes de agregarla a tu plan.',
+  'Tell the AI what you want out of your next routine — it sees your recent training, not your goals text elsewhere.': 'Dile a la IA qué quieres de tu próxima rutina — ve tu entrenamiento reciente, no el texto de tus metas en otra parte.',
+  'e.g. focus on upper body, 4 days a week, avoid the leg press': 'ej. enfocarse en tren superior, 4 días a la semana, evitar la prensa de piernas',
+  'Thinking…': 'Pensando…',
+  'Could not get a suggestion right now — try again in a moment.': 'No se pudo obtener una sugerencia ahora — intenta de nuevo en un momento.',
+  'The AI provider declined this request.': 'El proveedor de IA rechazó esta solicitud.',
+
+  // --- Strava sync (Phase 5) ---
+  'Strava sync': 'Sincronización con Strava',
+  'Uses your own Strava API application — see developers.strava.com. New WeightTraining activities are synced automatically, roughly every 6 hours.': 'Usa tu propia aplicación de API de Strava — ver developers.strava.com. Las nuevas actividades de entrenamiento de fuerza se sincronizan automáticamente, cada 6 horas aproximadamente.',
+  'Client ID': 'ID de cliente',
+  'Client Secret': 'Secreto de cliente',
+  'Enter a client ID and secret': 'Ingresa un ID de cliente y un secreto',
+  'Save Strava app': 'Guardar app de Strava',
+  'Strava app saved': 'App de Strava guardada',
+  'Could not save the Strava app': 'No se pudo guardar la app de Strava',
+  'Connect with Strava': 'Conectar con Strava',
+  'Connected to Strava': 'Conectado a Strava',
+  'Disconnect Strava?': '¿Desconectar Strava?',
+  'You can reconnect anytime.': 'Puedes volver a conectarte cuando quieras.',
+  'Strava disconnected': 'Strava desconectado',
+  'Could not disconnect': 'No se pudo desconectar',
+  'Could not connect to Strava — check your credentials and try again.': 'No se pudo conectar con Strava — revisa tus credenciales e intenta de nuevo.',
+
+  // --- device biometric label (lib/api.js's BIO, interpolated into Login copy) ---
+  'Face ID / Touch ID': 'Face ID / Touch ID',
+  'fingerprint or face unlock': 'huella o desbloqueo facial',
+  'your fingerprint, face or PIN': 'tu huella, rostro o PIN'
 }

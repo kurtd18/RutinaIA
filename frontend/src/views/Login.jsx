@@ -33,7 +33,7 @@ function RegisterSheet({ close }) {
   }
   return <>
     <h3>{t('Create your profile')}</h3>
-    <div className="muted small" style={{ marginBottom: 14 }}>{t('Pick a name, then confirm with {0}. The passkey is saved in your device — no password needed.', BIO)}</div>
+    <div className="muted small" style={{ marginBottom: 14 }}>{t('Pick a name, then confirm with {0}. The passkey is saved in your device — no password needed.', t(BIO))}</div>
     <input ref={ref} className="input" placeholder={t('Your name')} maxLength={40} value={name} onChange={e => setName(e.target.value)} />
     {inviteOnly && <>
       <div style={{ height: 10 }} />
@@ -44,6 +44,26 @@ function RegisterSheet({ close }) {
     <div style={{ height: 12 }} />
     <Button variant="primary" onClick={go}>{t('Create passkey')}</Button>
   </>
+}
+
+// Shown once, before Login, on any device that hasn't picked a language yet — a fresh install's
+// very first screen. Deliberately not gated by DEMO/MOBILE/auth state: it's a device-level
+// preference, not an account one, so every entry path (guest, passkey, demo) passes through it
+// the same way. Labels are literal, not t('English')/t('Español') — the whole point is picking
+// which language `t()` should even be running in.
+export function LanguageGate() {
+  const update = useStore(s => s.update)
+  const wrap = { display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '78vh', textAlign: 'center' }
+  const choose = lang => update(s => { s.lang = lang; s.langChosen = true })
+  return (
+    <div className="narrow" style={wrap}>
+      <div style={{ fontSize: 54, display: 'flex', justifyContent: 'center', color: 'var(--acc)' }}><Icon name="globe" /></div>
+      <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-.028em', margin: '10px 0 26px' }}>Choose your language · Elige tu idioma</h1>
+      <Button variant="primary" onClick={() => choose('en')}>English</Button>
+      <div style={{ height: 10 }} />
+      <Button variant="primary" onClick={() => choose('es')}>Español</Button>
+    </div>
+  )
 }
 
 export default function Login() {
@@ -90,7 +110,7 @@ export default function Login() {
         // so say that plainly instead of offering a local profile that cannot be created.
         : t("This browser doesn't support passkeys, and this instance requires an account. Try a browser or device with passkey support.")}</div>}
       {canGuest && <Button variant="ghost" className="dim" onClick={() => setGuest(true)}>{t('Continue without account')}</Button>}
-      <div className="dim small" style={{ marginTop: 26, lineHeight: 1.5 }}>{t('Passkeys use {0} — no passwords.', BIO)}<br />{t('Each profile keeps its own plan, workouts & body weight.')}</div>
+      <div className="dim small" style={{ marginTop: 26, lineHeight: 1.5 }}>{t('Passkeys use {0} — no passwords.', t(BIO))}<br />{t('Each profile keeps its own plan, workouts & body weight.')}</div>
     </div>
   )
 }
